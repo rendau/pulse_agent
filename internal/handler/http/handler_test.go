@@ -12,10 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
 	"github.com/mechta-market/pulse_agent/internal/errs"
+	"github.com/mechta-market/pulse_agent/internal/eval"
 	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
 	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
 	askModel "github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
+	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
 )
 
 type fakeAsk struct {
@@ -37,11 +40,48 @@ func (f *fakeAsk) Reset(_ context.Context, client, conversationId string) error 
 
 var almaty, _ = time.LoadLocation("Asia/Almaty")
 
-func serve(t *testing.T, ask *fakeAsk, path, key, body string) (*httptest.ResponseRecorder, map[string]any) {
-	mux := http.NewServeMux()
-	New(ask, map[string]string{"pulse_bot": "k-bot", "service-desk": "k-sd"}, almaty).Register(mux)
+type fakeMonitor struct{}
 
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+func (fakeMonitor) Recent(_ context.Context, f journalModel.Filter) ([]*journalModel.Entry, error) {
+	return []*journalModel.Entry{{Client: f.Client, Question: "q", Outcome: "answered", Duration: time.Second, Tools: []string{"ping"}}}, nil
+}
+
+func (fakeMonitor) Stats(context.Context) (*journalModel.Stats, error) {
+	return &journalModel.Stats{Questions: 1, Clients: []journalModel.ClientStats{{Client: "pulse_bot", Questions: 1}}}, nil
+}
+
+func (fakeMonitor) Info(context.Context) *monitorModel.Info {
+	return &monitorModel.Info{Version: "v1", LlmModel: "gpt-6-sol", PulseTools: []string{"ping"}}
+}
+
+const testCases = `
+cases:
+  - id: a
+    question: что с caravan?
+    checks: {calls: [{tool: get_service_snapshot}]}
+  - id: b
+    question: q2
+`
+
+func newHandler(t *testing.T, ask *fakeAsk) *Handler {
+	keeper, err := eval.NewKeeper([]byte(testCases), []byte(`{"cases":[]}`), 2)
+	require.NoError(t, err)
+	return New(Config{
+		Keys:        map[string]string{"pulse_bot": "k-bot", "service-desk": "k-sd"},
+		DebugToken:  "k-debug",
+		EvalClients: []string{"pulse_bot"},
+	}, ask, fakeMonitor{}, keeper, almaty)
+}
+
+func serve(t *testing.T, ask *fakeAsk, path, key, body string) (*httptest.ResponseRecorder, map[string]any) {
+	return serveMethod(t, newHandler(t, ask), http.MethodPost, path, key, body)
+}
+
+func serveMethod(t *testing.T, h *Handler, method, path, key, body string) (*httptest.ResponseRecorder, map[string]any) {
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
@@ -49,7 +89,9 @@ func serve(t *testing.T, ask *fakeAsk, path, key, body string) (*httptest.Respon
 	mux.ServeHTTP(rec, req)
 
 	var rep map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rep), rec.Body.String())
+	if strings.HasPrefix(strings.TrimSpace(rec.Body.String()), "{") {
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rep), rec.Body.String())
+	}
 	return rec, rep
 }
 
@@ -169,4 +211,61 @@ func TestReset(t *testing.T) {
 	rec, _ = serve(t, ask, PathAsk, "k-bot", `{"question":"q","conversation_id":"42","reset":true}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Len(t, ask.resets, 2)
+}
+
+func TestDebug(t *testing.T) {
+	h := newHandler(t, &fakeAsk{answer: &askModel.Answer{Text: "ok"}})
+
+	// ключ системы — не ключ разработчика
+	rec, rep := serveMethod(t, h, http.MethodGet, PathDebugStats, "k-bot", "")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, "forbidden", rep["code"])
+
+	rec, rep = serveMethod(t, h, http.MethodGet, PathDebugStats, "k-debug", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.InDelta(t, 1, rep["questions"], 0)
+
+	rec, rep = serveMethod(t, h, http.MethodGet, PathDebugInfo, "k-debug", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "gpt-6-sol", rep["llm_model"])
+
+	rec, _ = serveMethod(t, h, http.MethodGet, PathDebugRecent+"?client=pulse_bot&limit=5", "k-debug", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var recent []map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &recent))
+	require.Len(t, recent, 1)
+	assert.Equal(t, "pulse_bot", recent[0]["client"])
+	assert.InDelta(t, 1000, recent[0]["duration_ms"], 0)
+
+	// ключ разработчика годится и для вопросов — как система debug
+	ask := &fakeAsk{answer: &askModel.Answer{Text: "ok"}}
+	rec, _ = serveMethod(t, newHandler(t, ask), http.MethodPost, PathAsk, "k-debug", `{"question":"q"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, ClientDebug, ask.questions[0].Client)
+}
+
+func TestEval(t *testing.T) {
+	ask := &fakeAsk{answer: &askModel.Answer{Text: "ok", Trace: []agentModel.ToolTrace{{Name: "get_service_snapshot", Arguments: "{}"}}}}
+	h := newHandler(t, ask)
+
+	// service-desk не в EVAL_CLIENTS
+	rec, _ := serveMethod(t, h, http.MethodPost, PathEval, "k-sd", `{}`)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	rec, rep := serveMethod(t, h, http.MethodPost, PathEval, "k-bot", `{"only":["a"]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rep["text"], "✅ a")
+	assert.Contains(t, rep["text"], "Итого: 1/1 прошли")
+	require.Len(t, ask.questions, 1)
+	assert.Equal(t, ClientEval, ask.questions[0].Client, "вопросы прогона — от системы eval")
+
+	rec, rep = serveMethod(t, h, http.MethodPost, PathEval, "k-bot", `{"only":["нет-такого"]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rep["error"], "unknown cases")
+
+	// последний прогон — разработчику
+	rec, rep = serveMethod(t, h, http.MethodGet, PathDebugEvalLast, "k-debug", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rep["text"], "✅ a")
+	assert.Equal(t, nil, rep["running"])
 }

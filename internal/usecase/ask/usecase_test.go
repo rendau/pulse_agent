@@ -10,6 +10,9 @@ import (
 
 	"github.com/mechta-market/pulse_agent/internal/domain/dialog/repo/mem"
 	dialogServiceP "github.com/mechta-market/pulse_agent/internal/domain/dialog/service"
+	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	journalMem "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/mem"
+	journalServiceP "github.com/mechta-market/pulse_agent/internal/domain/journal/service"
 	"github.com/mechta-market/pulse_agent/internal/errs"
 	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
 	"github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
@@ -33,7 +36,7 @@ func (f *fakeAgent) Run(_ context.Context, req *agentModel.Req) (*agentModel.Res
 
 func newUsecase(agent *fakeAgent) *Usecase {
 	dialog := dialogServiceP.New(dialogServiceP.Config{MaxTurns: 10, Ttl: time.Hour}, mem.New())
-	return New(dialog, agent)
+	return New(dialog, journalServiceP.New(journalMem.New(100)), agent)
 }
 
 func TestAsk_History(t *testing.T) {
@@ -121,4 +124,25 @@ func TestAsk_ResponseSchema(t *testing.T) {
 
 	_, err = uc.Ask(context.Background(), &model.Question{Client: "sd", Text: "q", Format: "plain", ResponseSchema: schema})
 	require.ErrorIs(t, err, errs.InvalidRequest)
+}
+
+func TestAsk_Journal(t *testing.T) {
+	journal := journalServiceP.New(journalMem.New(10))
+	agent := &fakeAgent{result: &agentModel.Result{Answer: "ok", Incomplete: "timeout", ToolCalls: 1,
+		Trace: []agentModel.ToolTrace{{Name: "query_logs"}}}}
+	uc := New(dialogServiceP.New(dialogServiceP.Config{}, mem.New()), journal, agent)
+
+	_, err := uc.Ask(context.Background(), &model.Question{Client: "bot", User: model.User{Id: "7"}, Text: "что по заказу 1?"})
+	require.NoError(t, err)
+	_, err = uc.Ask(context.Background(), &model.Question{Client: "bot", Text: " "})
+	require.Error(t, err)
+
+	entries, err := journal.Recent(context.Background(), journalModel.Filter{})
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	assert.Equal(t, journalModel.OutcomeInvalid, entries[0].Outcome)
+	assert.Equal(t, journalModel.OutcomeIncomplete, entries[1].Outcome)
+	assert.Equal(t, "timeout", entries[1].Incomplete)
+	assert.Equal(t, []string{"query_logs"}, entries[1].Tools)
+	assert.Equal(t, "7", entries[1].UserId)
 }

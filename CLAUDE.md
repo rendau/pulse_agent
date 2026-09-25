@@ -39,12 +39,22 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
     /healthcheck, /docs/*, /metrics.
 - `internal/config/` — конфигурация через env (`config.go`).
-- `internal/handler/http/` — JSON-API: `POST /v1/ask`, `POST /v1/reset`; bearer-ключ → имя системы
-  (`withClient`, сравнение за постоянное время); `dto/` — контракт (`docs/agent-api.md`), неизвестные
-  поля запроса — 400; коды ошибок `invalid_request`/`unauthorized`/`busy`/`canceled`/`timeout`/`internal`.
+- `internal/handler/http/` — JSON-API: `POST /v1/ask`, `POST /v1/reset`, `POST /v1/eval` (прогон
+  эталонов — системам из `EVAL_CLIENTS`); bearer-ключ → имя системы (`withClient`, сравнение за
+  постоянное время); `dto/` — контракт (`docs/agent-api.md`), неизвестные поля запроса — 400; коды
+  ошибок `invalid_request`/`unauthorized`/`forbidden`/`busy`/`canceled`/`timeout`/`internal`.
+  `debug.go` — ручки разработчика (только `DEBUG_TOKEN`; он же годится для `/v1/*` как система
+  `debug`): `POST /debug/eval`, `GET /debug/eval/last`, `GET /debug/recent?client=&outcome=&limit=`,
+  `GET /debug/stats`, `GET /debug/info`. Прогон в сервисе идёт тем же путём, что вопрос API
+  (`answer`), от системы `eval`.
 - `internal/usecase/ask/` — вопрос: формат, «один вопрос за раз на беседу», история беседы (ключ —
   `клиент/conversation_id`: беседы систем не пересекаются; без conversation_id — без истории),
   агент, метрики по клиентам.
+- `internal/usecase/monitor/` — мониторинг для `/debug/*`: последние вопросы и сводка по журналу,
+  сведения об агенте и доступность pulse (каталог инструментов).
+- `internal/domain/journal/` — журнал вопросов (кто, что, исход, время, инструменты, токены):
+  кольцо последних `JOURNAL_SIZE` в памяти (`repo/mem`), сводка по системам и инструментам;
+  пишет usecase `ask` на каждый вопрос, включая отказы.
 - `internal/domain/dialog/` — история беседы: пары «вопрос — итоговый ответ» (без вызовов
   инструментов), последние N, сброс после тишины; `repo/mem` — в памяти процесса.
 - `internal/service/` — сервисные модули (раскладка — скилл `golang-service`):
@@ -76,7 +86,9 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     как в тексте ответа; %, мс, запросы в минуту). Ось линий от нуля, если ряд опускается ниже
     половины максимума, иначе — по данным с полями. 1152×648; тема `CHART_THEME` (`dark` по
     умолчанию, `light`).
-- `internal/eval/` — эталонные вопросы (см. ниже).
+- `internal/eval/` — эталонные вопросы (см. ниже): проверки, прогон (`Runner` с `AskFunc` — по HTTP
+  или в сервисе), отчёт, `Keeper` — прогоны в сервисе (один за раз, последний — в памяти).
+- `evals/` — `cases.yaml` и `baseline.json`, вшиты в образ (`embed.go`).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/infra/metrics/` — реестр Prometheus.
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы (`Timezone` — Asia/Almaty).
@@ -205,7 +217,9 @@ domain service → repo
 ### Переменные окружения
 - Описаны в `internal/config/config.go`, пример — `.env.example`.
 - Обязательные: `PULSE_MCP_URL`; для OpenAI — `OPENAI_API_KEY`; `API_KEYS` — `имя:ключ` через запятую
-  (секрет; имя системы — в журнале и метриках).
+  (секрет; имя системы — в журнале и метриках). `DEBUG_TOKEN` — ключ разработчика (секрет; пусто —
+  `/debug` закрыт); `EVAL_CLIENTS` — кому можно `/v1/eval` (бот); `EVAL_PARALLEL` (3),
+  `EVAL_TIMEOUT` (20m); `JOURNAL_SIZE` (500).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:
@@ -219,10 +233,13 @@ domain service → repo
   регэкспы по ответу (общие запреты единиц — `defaults`: мCPU, МиБ, сырые байты), графики,
   лимиты времени/вызовов/токенов; `format: json` — дополнительно проверяется `result`.
   `\b` в Go-регэкспах — только латиница: границы кириллицы — через `\P{L}`.
-- `cmd/eval` (`internal/eval`) гоняет их через `POST /v1/ask` (по 3 одновременно, `trace: true`),
-  печатает таблицу, пишет `eval-report.json` и сравнивает с `evals/baseline.json` (что
-  сломалось/починилось, время, токены — по тем же вопросам). Ключ — `EVAL_TOKEN` или
-  `~/.config/pulse_agent/api_key`, адрес — `EVAL_URL` (по умолчанию прод через ruto).
+- Три способа прогона: `make eval` с машины (`cmd/eval`, вопросы из файла — новые вопросы до
+  деплоя; через `POST /v1/ask`, `trace: true`); `POST /debug/eval` (вшитые вопросы, в сервисе);
+  `/eval` в Telegram для админов бота (`POST /v1/eval`). Отчёт сравнивается с
+  `evals/baseline.json` (что сломалось/починилось, время, токены — по тем же вопросам).
+- Ключ разработчика (агент Claude Code) — `DEBUG_TOKEN` в `~/.config/pulse_agent/debug_token`
+  (подставлять через `$(tr -d '\n' < …)`, не печатать); адрес — `EVAL_URL` (по умолчанию прод
+  через ruto: `https://api.mdev.kz/pulse_agent`).
 - Правка промпта/агента → `make eval` → если лучше, обновить baseline (без текстов ответов:
   `jq '.cases |= map(del(.answer, .result))'`). Вопрос о данных, которые уходят из хранения
   логов, — с `skip_after`.

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mechta-market/pulse_agent/evals"
 	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
 )
 
@@ -123,4 +124,15 @@ func TestEvaluateResult(t *testing.T) {
 	fields := map[string]string{"found": "true", "services": "~delivery", "problem": ""}
 	assert.Empty(t, evaluateResult(withResult(`{"found":true,"services":["delivery","mb-broker"],"problem":null}`), true, fields))
 	assert.NotEmpty(t, evaluateResult(withResult(`{"found":false,"services":[],"problem":null}`), true, fields))
+}
+
+// вшитые в образ вопросы и эталон разбираются: иначе сервис не стартует
+func TestKeeper_Embedded(t *testing.T) {
+	k, err := NewKeeper(evals.Cases, evals.Baseline, 3)
+	require.NoError(t, err)
+	assert.Contains(t, k.Cases(), "cluster-errors")
+	assert.NotNil(t, k.Baseline())
+	last, running := k.Last()
+	assert.Nil(t, last)
+	assert.False(t, running)
 }

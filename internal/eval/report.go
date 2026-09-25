@@ -96,11 +96,23 @@ func LoadReport(path string) (*Report, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read report: %w", err)
 	}
+	return ParseReport(raw)
+}
+
+// ParseReport разбирает отчёт.
+func ParseReport(raw []byte) (*Report, error) {
 	var r Report
-	if err = json.Unmarshal(raw, &r); err != nil {
+	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, fmt.Errorf("parse report: %w", err)
 	}
 	return &r, nil
+}
+
+// Text — таблица прогона текстом (как в консоли): для Telegram и ответа ручек.
+func (r *Report) Text(baseline *Report) string {
+	var b strings.Builder
+	r.Print(&b, baseline)
+	return b.String()
 }
 
 // Print — таблица прогона; с baseline — что сломалось и что починилось по сравнению с ним.

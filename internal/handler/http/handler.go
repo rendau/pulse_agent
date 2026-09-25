@@ -1,6 +1,7 @@
 // Package http — JSON API агента для систем-клиентов (бот, service-desk, разбор алертов):
-// POST /v1/ask, POST /v1/reset. У каждой системы свой bearer-ключ (API_KEYS): по нему
-// известно, кто спрашивает, — журнал, метрики и свои беседы.
+// POST /v1/ask, /v1/reset, /v1/eval. У каждой системы свой bearer-ключ (API_KEYS): по нему
+// известно, кто спрашивает, — журнал, метрики и свои беседы. Ключ разработчика (DEBUG_TOKEN)
+// открывает ещё /debug/* (debug.go): мониторинг и прогон эталонных вопросов.
 package http
 
 import (
@@ -24,6 +25,15 @@ import (
 const (
 	PathAsk   = "/v1/ask"
 	PathReset = "/v1/reset"
+	PathEval  = "/v1/eval"
+)
+
+// системы-клиенты, которых нет в API_KEYS
+const (
+	// ClientDebug — разработчик с DEBUG_TOKEN
+	ClientDebug = "debug"
+	// ClientEval — вопросы прогона эталонов (в журнале и метриках отдельно от систем)
+	ClientEval = "eval"
 )
 
 const maxBodyBytes = 64 * 1024
@@ -33,23 +43,47 @@ const (
 	codeInvalidRequest = "invalid_request"
 	codeUnauthorized   = "unauthorized"
 	codeBusy           = "busy"
+	codeForbidden      = "forbidden"
 	codeTimeout        = "timeout"
 	codeCanceled       = "canceled"
 	codeInternal       = "internal"
 )
 
-type Handler struct {
-	ask  AskUsecaseI
-	keys map[string][]byte // клиент → ключ
-	loc  *time.Location
+// Config — доступ: ключи систем, ключ разработчика, кому можно запускать прогон.
+type Config struct {
+	// Keys — имя системы → её ключ (API_KEYS)
+	Keys map[string]string
+	// DebugToken — ключ разработчика: /debug/* и /v1/* (как система ClientDebug); пусто — /debug закрыт
+	DebugToken string
+	// EvalClients — системы, которым можно запускать прогон (/v1/eval), кроме разработчика
+	EvalClients []string
+	// EvalTimeout — потолок времени на прогон
+	EvalTimeout time.Duration
 }
 
-// New — keys: имя системы → её ключ.
-func New(ask AskUsecaseI, keys map[string]string, loc *time.Location) *Handler {
+type Handler struct {
+	ask         AskUsecaseI
+	monitor     MonitorUsecaseI
+	keeper      EvalKeeperI
+	keys        map[string][]byte // клиент → ключ
+	evalClients map[string]struct{}
+	evalTimeout time.Duration
+	loc         *time.Location
+}
+
+func New(cfg Config, ask AskUsecaseI, monitor MonitorUsecaseI, keeper EvalKeeperI, loc *time.Location) *Handler {
+	keys := lo.MapValues(cfg.Keys, func(key string, _ string) []byte { return []byte(key) })
+	if cfg.DebugToken != "" {
+		keys[ClientDebug] = []byte(cfg.DebugToken)
+	}
 	return &Handler{
-		ask:  ask,
-		keys: lo.MapValues(keys, func(key string, _ string) []byte { return []byte(key) }),
-		loc:  loc,
+		ask:         ask,
+		monitor:     monitor,
+		keeper:      keeper,
+		keys:        keys,
+		evalClients: lo.SliceToMap(append(cfg.EvalClients, ClientDebug), func(c string) (string, struct{}) { return c, struct{}{} }),
+		evalTimeout: lo.Ternary(cfg.EvalTimeout > 0, cfg.EvalTimeout, 20*time.Minute),
+		loc:         loc,
 	}
 }
 
@@ -57,6 +91,8 @@ func New(ask AskUsecaseI, keys map[string]string, loc *time.Location) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+PathAsk, h.withClient(h.Ask))
 	mux.HandleFunc("POST "+PathReset, h.withClient(h.Reset))
+	mux.HandleFunc("POST "+PathEval, h.withClient(h.Eval))
+	h.registerDebug(mux)
 }
 
 // withClient — ключ из Authorization: Bearer → имя системы-клиента.
@@ -92,13 +128,21 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request, client string) {
 		return
 	}
 
-	ctx := r.Context()
+	rep, err := h.answer(r.Context(), client, req)
+	if err != nil {
+		writeFail(w, r, client, err)
+		return
+	}
+	writeJson(w, http.StatusOK, rep)
+}
+
+// answer — вопрос системы client: ответ API (тот же путь — у прогона эталонов в сервисе).
+func (h *Handler) answer(ctx context.Context, client string, req *dto.AskReq) (*dto.AskRep, error) {
 	started := time.Now()
 
 	if req.Reset {
 		if err := h.ask.Reset(ctx, client, req.ConversationId); err != nil {
-			writeFail(w, r, client, err)
-			return
+			return nil, err
 		}
 	}
 
@@ -108,17 +152,41 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request, client string) {
 		User:           askModel.User{Id: req.User.Id, Name: req.User.Name},
 		Text:           req.Question,
 		Format:         strings.TrimSpace(req.Format),
-		Charts:         req.Charts != dto.ChartsNone,
+		Charts:         lo.CoalesceOrEmpty(req.Charts, dto.ChartsAll) != dto.ChartsNone,
 		ResponseSchema: req.ResponseSchema,
 	})
 	if err != nil {
-		writeFail(w, r, client, err)
-		return
+		return nil, err
 	}
 
 	rep := dto.EncodeAskRep(answer, req, h.loc)
 	rep.DurationMs = time.Since(started).Milliseconds()
-	writeJson(w, http.StatusOK, rep)
+	return rep, nil
+}
+
+// Eval — POST /v1/eval: прогон эталонных вопросов в сервисе (системы из EVAL_CLIENTS и
+// разработчик); синхронно, до нескольких минут.
+func (h *Handler) Eval(w http.ResponseWriter, r *http.Request, client string) {
+	if _, ok := h.evalClients[client]; !ok {
+		writeError(w, http.StatusForbidden, codeForbidden, "eval is not allowed for "+client)
+		return
+	}
+	req := &dto.EvalReq{}
+	if !decode(w, r, req) {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), h.evalTimeout)
+	defer cancel()
+
+	report, err := h.keeper.Run(ctx, func(ctx context.Context, q *dto.AskReq) (*dto.AskRep, error) {
+		return h.answer(ctx, ClientEval, q)
+	}, "in-process ("+client+")", req.Only)
+	if err != nil {
+		writeFail(w, r, client, err)
+		return
+	}
+	writeJson(w, http.StatusOK, &dto.EvalRep{Text: report.Text(h.keeper.Baseline()), Report: report})
 }
 
 // Reset — POST /v1/reset: забыть историю беседы.
@@ -149,7 +217,8 @@ func writeFail(w http.ResponseWriter, r *http.Request, client string, err error)
 	case errors.Is(err, errs.InvalidRequest):
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 	case errors.Is(err, errs.Busy):
-		writeError(w, http.StatusConflict, codeBusy, "previous question in this conversation is still running")
+		writeError(w, http.StatusConflict, codeBusy, lo.Ternary(err.Error() == errs.Busy.Error(),
+			"previous question in this conversation is still running", err.Error()))
 	case r.Context().Err() != nil:
 		// клиент ушёл или сервис останавливается
 		writeError(w, http.StatusServiceUnavailable, codeCanceled, err.Error())

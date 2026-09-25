@@ -27,7 +27,7 @@ func main() {
 
 	casesPath := flag.String("cases", "evals/cases.yaml", "набор вопросов")
 	url := flag.String("url", lo.CoalesceOrEmpty(os.Getenv("EVAL_URL"), "https://api.mdev.kz/pulse_agent/v1/ask"), "API агента (EVAL_URL)")
-	tokenFile := flag.String("token-file", filepath.Join(home, ".config/pulse_agent/api_key"), "файл с ключом API (или EVAL_TOKEN)")
+	tokenFile := flag.String("token-file", filepath.Join(home, ".config/pulse_agent/debug_token"), "файл с ключом (DEBUG_TOKEN агента; или EVAL_TOKEN)")
 	only := flag.String("only", "", "id вопросов через запятую; пусто — все")
 	parallel := flag.Int("parallel", 3, "вопросов одновременно")
 	out := flag.String("out", "eval-report.json", "куда сохранить отчёт")
@@ -84,9 +84,10 @@ func run(casesPath, url, tokenFile, only string, parallel int, out, baselinePath
 
 	fmt.Printf("Прогон %d вопросов → %s (по %d одновременно)\n\n", len(cases), url, parallel)
 	runner := &eval.Runner{
-		Url: url, Token: token, Parallel: parallel,
 		// ответ приходит целиком после разбора: до таймаута агента (5 мин) с запасом
-		Client: httpx.New(httpx.Config{ResponseHeaderTimeout: 6 * time.Minute, VerifyTLS: true}),
+		Ask:      eval.HttpAsk(url, token, httpx.New(httpx.Config{ResponseHeaderTimeout: 6 * time.Minute, VerifyTLS: true})),
+		Parallel: parallel,
+		Source:   url,
 	}
 	report := runner.Run(ctx, cases)
 	report.Print(os.Stdout, baseline)

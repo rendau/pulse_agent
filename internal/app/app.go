@@ -12,10 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/samber/lo"
+
+	"github.com/mechta-market/pulse_agent/evals"
 	"github.com/mechta-market/pulse_agent/internal/config"
 	"github.com/mechta-market/pulse_agent/internal/constant"
 	domainDialogRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/dialog/repo/mem"
 	domainDialogServiceP "github.com/mechta-market/pulse_agent/internal/domain/dialog/service"
+	domainJournalRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/mem"
+	domainJournalServiceP "github.com/mechta-market/pulse_agent/internal/domain/journal/service"
+	"github.com/mechta-market/pulse_agent/internal/eval"
 	handlerHttpP "github.com/mechta-market/pulse_agent/internal/handler/http"
 	"github.com/mechta-market/pulse_agent/internal/infra/httpx"
 	serviceAgentServiceP "github.com/mechta-market/pulse_agent/internal/service/agent/service"
@@ -24,6 +30,8 @@ import (
 	serviceLlmOpenaiServiceP "github.com/mechta-market/pulse_agent/internal/service/llm/openai/service"
 	servicePulseServiceP "github.com/mechta-market/pulse_agent/internal/service/pulse/service"
 	usecaseAskP "github.com/mechta-market/pulse_agent/internal/usecase/ask"
+	usecaseMonitorP "github.com/mechta-market/pulse_agent/internal/usecase/monitor"
+	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
 )
 
 type App struct {
@@ -96,18 +104,45 @@ func (a *App) Init() {
 		dialogRepo,
 	)
 
+	// journal
+	journalRepo := domainJournalRepoMemP.New(config.Conf.JournalSize)
+	journalService := domainJournalServiceP.New(journalRepo)
+
 	// ask
-	askUsecase := usecaseAskP.New(dialogService, agentService)
+	askUsecase := usecaseAskP.New(dialogService, journalService, agentService)
+
+	// eval (эталонные вопросы, вшитые в образ)
+	evalKeeper, err := eval.NewKeeper(evals.Cases, evals.Baseline, config.Conf.EvalParallel)
+	errCheck(err, "evals")
+
+	keys, err := parseApiKeys(config.Conf.ApiKeys)
+	errCheck(err, "API_KEYS")
+	if len(keys) == 0 {
+		slog.Warn("API_KEYS is empty: only DEBUG_TOKEN is accepted")
+	}
+
+	// monitor
+	monitorUsecase := usecaseMonitorP.New(monitorModel.Info{
+		Version:         constant.Version,
+		StartedAt:       time.Now(),
+		LlmProvider:     llmProvider.Name(),
+		LlmModel:        config.Conf.LlmModel,
+		ReasoningEffort: config.Conf.LlmReasoningEffort,
+		MaxToolCalls:    config.Conf.AgentMaxToolCalls,
+		Timeout:         config.Conf.AgentTimeout,
+		Clients:         lo.Keys(keys),
+		EvalClients:     config.Conf.EvalClients,
+		EvalCases:       evalKeeper.Cases(),
+	}, journalService, a.pulse)
 
 	// http server (API)
 	{
-		keys, err := parseApiKeys(config.Conf.ApiKeys)
-		errCheck(err, "API_KEYS")
-		if len(keys) == 0 {
-			slog.Warn("API_KEYS is empty: every request will get 401")
-		}
-
-		handler := handlerHttpP.New(askUsecase, keys, location)
+		handler := handlerHttpP.New(handlerHttpP.Config{
+			Keys:        keys,
+			DebugToken:  config.Conf.DebugToken,
+			EvalClients: config.Conf.EvalClients,
+			EvalTimeout: config.Conf.EvalTimeout,
+		}, askUsecase, monitorUsecase, evalKeeper, location)
 		a.httpServer = HttpServerCreate(config.Conf.HttpPort, handler, a.ctx)
 	}
 

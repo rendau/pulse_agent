@@ -10,8 +10,9 @@ import (
 	handlerHttpP "github.com/mechta-market/pulse_agent/internal/handler/http"
 )
 
-// HttpServerCreate строит сервер API. Разбор идёт до AGENT_TIMEOUT — таймаут записи с
-// запасом поверх него; запросы живут в ctx приложения, чтобы остановка отменяла идущие разборы.
+// HttpServerCreate строит сервер API. Разбор идёт до AGENT_TIMEOUT, прогон эталонов — до
+// EVAL_TIMEOUT: таймаут записи — с запасом поверх большего; запросы живут в ctx приложения,
+// чтобы остановка отменяла идущие разборы.
 func HttpServerCreate(port string, handler *handlerHttpP.Handler, ctx context.Context) *http.Server {
 	mux := http.NewServeMux()
 	handler.Register(mux)
@@ -21,7 +22,7 @@ func HttpServerCreate(port string, handler *handlerHttpP.Handler, ctx context.Co
 		Handler:           mux,
 		ReadHeaderTimeout: 2 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      config.Conf.AgentTimeout + 30*time.Second,
+		WriteTimeout:      max(config.Conf.AgentTimeout, config.Conf.EvalTimeout) + 30*time.Second,
 		IdleTimeout:       time.Minute,
 		MaxHeaderBytes:    64 * 1024,
 		BaseContext:       func(net.Listener) context.Context { return ctx },

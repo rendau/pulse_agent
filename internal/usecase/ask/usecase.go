@@ -4,6 +4,7 @@ package ask
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/mechta-market/pulse_agent/internal/constant"
 	dialogModel "github.com/mechta-market/pulse_agent/internal/domain/dialog/model"
+	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
 	"github.com/mechta-market/pulse_agent/internal/errs"
 	"github.com/mechta-market/pulse_agent/internal/infra/metrics"
 	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
@@ -44,20 +46,28 @@ func init() {
 }
 
 type Usecase struct {
-	dialog DialogServiceI
-	agent  AgentI
+	dialog  DialogServiceI
+	journal JournalServiceI
+	agent   AgentI
 
 	mu   sync.Mutex
 	busy map[string]struct{} // беседы, где идёт разбор
 }
 
-func New(dialog DialogServiceI, agent AgentI) *Usecase {
-	return &Usecase{dialog: dialog, agent: agent, busy: map[string]struct{}{}}
+func New(dialog DialogServiceI, journal JournalServiceI, agent AgentI) *Usecase {
+	return &Usecase{dialog: dialog, journal: journal, agent: agent, busy: map[string]struct{}{}}
 }
 
-// Ask разбирает вопрос. Ошибки: errs.InvalidRequest — пустой или слишком длинный вопрос,
-// неизвестный формат; errs.Busy — в беседе уже идёт разбор.
+// Ask разбирает вопрос и пишет его в журнал (мониторинг). Ошибки: errs.InvalidRequest —
+// пустой или слишком длинный вопрос, неизвестный формат; errs.Busy — в беседе уже идёт разбор.
 func (u *Usecase) Ask(ctx context.Context, q *model.Question) (*model.Answer, error) {
+	started := time.Now()
+	answer, err := u.askChecked(ctx, q)
+	u.record(ctx, q, answer, err, time.Since(started))
+	return answer, err
+}
+
+func (u *Usecase) askChecked(ctx context.Context, q *model.Question) (*model.Answer, error) {
 	text := strings.TrimSpace(q.Text)
 	switch {
 	case text == "":
@@ -154,6 +164,36 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 		Usage:      result.Usage,
 		Trace:      result.Trace,
 	}, nil
+}
+
+// record — запись вопроса в журнал; ошибка журнала не роняет ответ.
+func (u *Usecase) record(ctx context.Context, q *model.Question, answer *model.Answer, err error, duration time.Duration) {
+	entry := &journalModel.Entry{
+		At: time.Now(), Client: q.Client, ConversationId: q.ConversationId, UserId: q.User.Id,
+		Question: strings.TrimSpace(q.Text), Format: q.Format, ClientSchema: q.ResponseSchema != nil,
+		Duration: duration,
+	}
+	switch {
+	case errors.Is(err, errs.Busy):
+		entry.Outcome = journalModel.OutcomeBusy
+	case errors.Is(err, errs.InvalidRequest):
+		entry.Outcome, entry.Error = journalModel.OutcomeInvalid, err.Error()
+	case err != nil:
+		entry.Outcome, entry.Error = journalModel.OutcomeError, err.Error()
+	case answer.Incomplete != "":
+		entry.Outcome, entry.Incomplete = journalModel.OutcomeIncomplete, answer.Incomplete
+	default:
+		entry.Outcome = journalModel.OutcomeAnswered
+	}
+	if answer != nil {
+		entry.Steps, entry.ToolCalls, entry.Charts = answer.Steps, answer.ToolCalls, len(answer.Charts)
+		entry.InputTokens, entry.CachedTokens, entry.OutputTokens = answer.Usage.InputTokens, answer.Usage.CachedTokens, answer.Usage.OutputTokens
+		entry.Tools = lo.Map(answer.Trace, func(t agentModel.ToolTrace, _ int) string { return t.Name })
+	}
+
+	if jerr := u.journal.Append(context.WithoutCancel(ctx), entry); jerr != nil {
+		slog.Warn("journal append", "error", jerr)
+	}
 }
 
 // Reset забывает историю беседы клиента.

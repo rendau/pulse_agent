@@ -76,16 +76,21 @@ type Range struct {
 	Max int `yaml:"max"`
 }
 
-// Load читает набор и проверяет регэкспы и уникальность id.
+// Load читает набор из файла.
 func Load(path string) (*Suite, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+	return Parse(raw, path)
+}
 
+// Parse разбирает набор и проверяет регэкспы и уникальность id; name — для ошибок.
+func Parse(raw []byte, name string) (*Suite, error) {
 	var s Suite
-	if err = yaml.Unmarshal(raw, &s); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+	err := yaml.Unmarshal(raw, &s)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", name, err)
 	}
 
 	seen := map[string]struct{}{}
