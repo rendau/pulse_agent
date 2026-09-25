@@ -14,4 +14,7 @@ type Provider interface {
 
 	// Complete делает один шаг модели.
 	Complete(ctx context.Context, req *llmModel.Request) (*llmModel.Response, error)
+
+	// Ping — провайдер доступен и модель есть (без генерации: токены не тратятся).
+	Ping(ctx context.Context) error
 }

@@ -87,7 +87,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
       ссылкой `metrics` (service + metric_id) на ответ `query_metrics` этого разбора: точки не
       переписываются моделью; `series` — свои точки для небольших данных. До 3 графиков на ответ;
       `Chart.Spec` — данные графика (клиент может нарисовать сам).
-  - `llm` — провайдер-независимый контракт: фасад `Provider` (`interface.go`), модели шага
+  - `llm` — провайдер-независимый контракт: фасад `Provider` (`interface.go`: шаг, `Ping` для ручки
+    состояния), модели шага
     (`model/`, `Request.Output` — JSON Schema итогового ответа). Адаптеры —
     `llm/<provider>/service`; сейчас `openai` (`text.format: json_schema`, strict).
   - `pulse` — MCP-клиент pulse: ленивое подключение, переподключение при потере сессии,
@@ -104,6 +105,12 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   или в сервисе), отчёт, `Keeper` — прогоны в сервисе (один за раз, последний — в памяти).
 - `evals/` — `cases.yaml` и `baseline.json`, вшиты в образ (`embed.go`).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
+- `internal/infra/pulsekit/` — манифест сервиса по стандарту pulse (`pulse/docs/service-manifest.md`; копия
+  `pulse/internal/infra/pulsekit` до модуля gotemplate — правки вносить в обе). Манифест агента —
+  `app/manifest.go`: команда platform, критичность low, зависимости pulse и llm (критичные; `Provider.Ping` —
+  без генерации) и журнал в Postgres, ручка `question_stats` (агрегаты журнала за 1h/24h/7d, без текстов и
+  имён). На системном порту: `/.well-known/pulse`, `/.well-known/pulse/status`, `/diag/questions`.
+  Коммит сборки — `constant.Commit` (Makefile, ldflags).
 - `internal/infra/metrics/` — реестр Prometheus.
 - `internal/errs/` и `internal/constant/` — общие коды ошибок и константы (`Timezone` — Asia/Almaty).
 

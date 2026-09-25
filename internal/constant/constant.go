@@ -7,8 +7,13 @@ const (
 // Timezone — пояс времени в ответах и на графиках.
 const Timezone = "Asia/Almaty"
 
-// Version подставляется при сборке: -ldflags "-X .../internal/constant.Version=<ver>".
-var Version = "dev"
+// Version, Commit, BuiltAt подставляются при сборке: -ldflags "-X .../internal/constant.Version=<ver>"
+// (Commit — полный SHA: манифест сервиса, build.commit).
+var (
+	Version = "dev"
+	Commit  = ""
+	BuiltAt = ""
+)
 
 // LLM-провайдеры (LLM_PROVIDER)
 const (

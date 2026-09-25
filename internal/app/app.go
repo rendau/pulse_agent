@@ -26,6 +26,7 @@ import (
 	"github.com/mechta-market/pulse_agent/internal/eval"
 	handlerHttpP "github.com/mechta-market/pulse_agent/internal/handler/http"
 	"github.com/mechta-market/pulse_agent/internal/infra/httpx"
+	"github.com/mechta-market/pulse_agent/internal/infra/pulsekit"
 	serviceAgentServiceP "github.com/mechta-market/pulse_agent/internal/service/agent/service"
 	serviceChartServiceP "github.com/mechta-market/pulse_agent/internal/service/chart/service"
 	"github.com/mechta-market/pulse_agent/internal/service/llm"
@@ -43,6 +44,9 @@ type App struct {
 	pulse  *servicePulseServiceP.Service
 
 	journalRetention retention.Retention // nil — журнал в памяти
+
+	// pulsekit — манифест агента для pulse и фоновые проверки зависимостей (ручка состояния)
+	pulsekit *pulsekit.Kit
 
 	httpServer       *http.Server
 	systemHttpServer *http.Server
@@ -177,9 +181,23 @@ func (a *App) Init() {
 		a.httpServer = HttpServerCreate(config.Conf.HttpPort, handler, a.ctx)
 	}
 
-	// system http server (healthcheck, docs, metrics)
+	// pulsekit (манифест агента: сведения о себе, зависимости, ручка question_stats)
+	a.pulsekit = newPulsekit()
 	{
-		a.systemHttpServer = SystemHttpServerCreate(config.Conf.SystemHttpPort)
+		a.pulsekit.Depend("pulse", "http", hostOf(config.Conf.PulseMcpUrl), true, func(ctx context.Context) error {
+			_, err := a.pulse.Catalog(ctx)
+			return err
+		})
+		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, llmProvider.Ping)
+		if a.pgpool != nil {
+			a.pulsekit.Depend("journal_pg", "postgres", hostOf(config.Conf.PgDsn), false, a.pgpool.Ping)
+		}
+		handleQuestionStats(a.pulsekit, monitorUsecase)
+	}
+
+	// system http server (healthcheck, docs, metrics, манифест)
+	{
+		a.systemHttpServer = SystemHttpServerCreate(config.Conf.SystemHttpPort, a.pulsekit.Register)
 	}
 }
 
@@ -189,6 +207,9 @@ func (a *App) PreStartHook() {
 
 func (a *App) Start() {
 	slog.Info("Starting")
+
+	// pulsekit
+	a.pulsekit.Start(a.ctx)
 
 	// journal retention
 	if a.journalRetention != nil {
@@ -257,6 +278,9 @@ func (a *App) Stop() {
 
 func (a *App) WaitJobs() {
 	slog.Info("waiting jobs")
+
+	// pulsekit
+	a.pulsekit.Wait()
 
 	// journal retention
 	if a.journalRetention != nil {

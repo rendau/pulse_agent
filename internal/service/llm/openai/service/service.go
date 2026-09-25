@@ -57,6 +57,14 @@ func New(cfg Config, httpClient *http.Client) *Service {
 	}
 }
 
+// Ping — GET /models/{model}: проверяет ключ и доступность модели, токены не тратит.
+func (s *Service) Ping(ctx context.Context) error {
+	if _, err := s.client.Models.Get(ctx, s.cfg.Model, option.WithMaxRetries(0)); err != nil {
+		return fmt.Errorf("Models.Get: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) Name() string {
 	return constant.LlmProviderOpenai
 }
