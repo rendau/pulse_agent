@@ -1,0 +1,187 @@
+# Эталонные вопросы агенту: go run ./cmd/eval (см. cmd/eval/main.go).
+# Данные живые — проверяется поведение, а не точные числа: какие инструменты вызваны и с какими
+# параметрами, чего не должно быть в ответе, нужен ли график, время и токены.
+#
+# checks:
+#   calls:            вызовы, которые должны быть: tool + подмножество args
+#                     (значение строкой; "" — аргумента нет или пустой; "~регэксп")
+#   no_calls:         инструменты, которых быть не должно
+#   tool_limits:      {инструмент: N} — не больше N вызовов (повторы одного поиска)
+#   first_call:       с какого инструмента разбор должен начаться
+#   no_tools:         ответ без инструментов
+#   answer_regex / answer_not_regex: регэкспы по тексту ответа (Go RE2, (?i) — без регистра)
+#   charts:           {min, max} графиков
+#   max_tool_calls / max_duration / max_input_tokens, allow_incomplete
+# before: вопросы той же беседы перед основным; skip_after: дата, после которой вопрос устарел.
+
+defaults:
+  max_duration: 3m
+  max_tool_calls: 12
+  # правила ответа (промпт бота): числа в привычных единицах
+  answer_not_regex:
+    - '(?i)мcpu|mcpu'
+    # \b в Go-регэкспах только для латиницы: границы кириллицы — через \P{L} (не буква)
+    - '(?i)(^|\P{L})(миб|гиб)(\P{L}|$)|\b(mib|gib)\b'
+    - '\d{3}[  ]\d{3}[  ]\d{3}\s*байт'
+    - '0[.,]00\d+\s*ядр'
+
+cases:
+  # --- состояние сервиса ---
+  - id: service-health
+    question: что с caravan?
+    note: у деградировавшего сервиса бот идёт глубже (таймлайн, логи, метрики, график) — это норма
+    checks:
+      calls:
+        - tool: get_service_snapshot
+          args: {service: caravan}
+      tool_limits: {get_service_snapshot: 1}
+
+  - id: service-usage-translit
+    note: кириллица + транслит; раньше ответ был в мCPU, МиБ и сырых байтах
+    question: какое потребление сейчас у караван?
+    checks:
+      calls:
+        - tool: get_service_snapshot
+          args: {service: caravan}
+      answer_regex: ['(?i)(^|\P{L})(мб|гб)(\P{L}|$)']
+      max_tool_calls: 6
+
+  - id: unknown-service
+    question: что с сервисом зюзябрик?
+    checks:
+      calls: [{tool: resolve_service}]
+      no_calls: [get_service_snapshot]
+      answer_regex: ['(?i)не наш|не найден|нет такого|уточн|какой из|имеете в виду']
+
+  - id: last-commit
+    question: какой последний коммит в caravan?
+    checks:
+      calls:
+        - tool: get_changes
+          args: {service: caravan}
+      answer_regex: ['\b[0-9a-f]{7,40}\b']
+
+  - id: what-changed
+    question: что менялось в delivery за последние сутки?
+    checks:
+      calls:
+        - tool: get_timeline
+          args: {service: delivery}
+
+  - id: service-errors
+    question: на чём падает credit-broker?
+    checks:
+      calls:
+        - tool: query_logs
+          args: {service: credit-broker, level: error}
+
+  - id: dependencies
+    question: от каких сервисов зависит delivery?
+    checks:
+      calls:
+        - tool: get_dependencies
+          args: {service: delivery}
+
+  # --- кластер ---
+  - id: cluster-errors
+    note: раньше бот переспрашивал, по какому сервису
+    question: есть ли ошибки в логах кластера?
+    checks:
+      first_call: get_cluster_health
+      no_calls: [query_logs]
+      answer_not_regex: ['(?i)какой сервис|по какому сервису|уточните сервис']
+      max_tool_calls: 3
+
+  - id: cluster-errors-day-chart
+    question: какие сервисы больше всего ошибаются в логах за сутки?
+    checks:
+      calls:
+        - tool: get_cluster_health
+          args: {window: 24h}
+        - tool: render_chart
+          args: {type: bar}
+      charts: {min: 1, max: 1}
+
+  - id: sources
+    question: какие источники данных у тебя сейчас доступны?
+    checks:
+      calls: [{tool: ping}]
+      max_tool_calls: 2
+
+  # --- метрики и графики ---
+  - id: memory-trend-chart
+    question: как менялась память caravan за последние 6 часов?
+    checks:
+      calls:
+        - tool: query_metrics
+          args: {service: caravan, metric_id: memory_bytes, window: 6h}
+        - tool: render_chart
+          args: {type: line}
+      charts: {min: 1, max: 1}
+
+  - id: memory-followup-day
+    note: уточнение в той же беседе — окно из нового вопроса, сервис из прошлого
+    before: ['как менялась память caravan за последние 6 часов?']
+    question: а за сутки?
+    checks:
+      calls:
+        - tool: query_metrics
+          args: {service: caravan, window: 24h}
+
+  # --- поиск по номеру ---
+  - id: order-found
+    note: заказ из логов 22–24.09 (delivery, mb-broker, orders-center); логи хранятся 30 дней
+    question: что по заказу 41314079?
+    skip_after: 2026-10-20
+    checks:
+      calls:
+        - tool: query_logs
+          args: {service: '', pattern: '~41314079'}
+      # найденные строки — уже все следы: не повторять поиск по каждому сервису
+      tool_limits: {query_logs: 2}
+      answer_regex: ['(?i)delivery|mb-broker']
+      max_input_tokens: 80000
+
+  - id: order-hours
+    question: что было с заказом 41314079 24 сентября с 13 до 14?
+    skip_after: 2026-10-20
+    checks:
+      calls:
+        - tool: query_logs
+          args: {service: '', pattern: '~41314079', end: '~2026-09-24T14'}
+
+  - id: order-not-found
+    note: номера нет — поиск до конца бюджета, честный ответ без выдумок
+    question: что по заказу 777000111999?
+    checks:
+      calls:
+        - tool: query_logs
+          args: {service: '', pattern: '~777000111999'}
+      answer_regex: ['(?i)не найд|не наш|нет (записей|следов|упоминаний)|не встреча']
+
+  # --- не про инфраструктуру ---
+  - id: off-topic
+    question: какая сегодня погода в Алматы?
+    checks:
+      no_tools: true
+      answer_regex: ['(?i)инфраструктур']
+      max_duration: 1m
+
+  # --- ответ по полям (format=json: системы вроде service-desk) ---
+  - id: json-service-health
+    question: что с caravan?
+    format: json
+    checks:
+      calls:
+        - tool: get_service_snapshot
+          args: {service: caravan}
+
+  - id: json-order-found
+    question: что по заказу 41314079?
+    format: json
+    skip_after: 2026-10-20
+    checks:
+      calls:
+        - tool: query_logs
+          args: {service: '', pattern: '~41314079'}
+      tool_limits: {query_logs: 2}

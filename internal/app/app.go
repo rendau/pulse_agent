@@ -1,0 +1,230 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/mechta-market/pulse_agent/internal/config"
+	"github.com/mechta-market/pulse_agent/internal/constant"
+	domainDialogRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/dialog/repo/mem"
+	domainDialogServiceP "github.com/mechta-market/pulse_agent/internal/domain/dialog/service"
+	handlerHttpP "github.com/mechta-market/pulse_agent/internal/handler/http"
+	"github.com/mechta-market/pulse_agent/internal/infra/httpx"
+	serviceAgentServiceP "github.com/mechta-market/pulse_agent/internal/service/agent/service"
+	serviceChartServiceP "github.com/mechta-market/pulse_agent/internal/service/chart/service"
+	"github.com/mechta-market/pulse_agent/internal/service/llm"
+	serviceLlmOpenaiServiceP "github.com/mechta-market/pulse_agent/internal/service/llm/openai/service"
+	servicePulseServiceP "github.com/mechta-market/pulse_agent/internal/service/pulse/service"
+	usecaseAskP "github.com/mechta-market/pulse_agent/internal/usecase/ask"
+)
+
+type App struct {
+	pulse *servicePulseServiceP.Service
+
+	httpServer       *http.Server
+	systemHttpServer *http.Server
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+
+	exitCode int
+}
+
+func (a *App) Init() {
+	a.ctx, a.ctxCancel = context.WithCancel(context.Background())
+
+	// logger
+	initLogger(config.Conf.Debug, config.Conf.LogLevel)
+	slog.Info("starting " + constant.ServiceName + " " + constant.Version)
+
+	location, err := time.LoadLocation(constant.Timezone)
+	errCheck(err, "timezone")
+
+	// llm
+	var llmProvider llm.Provider
+	switch config.Conf.LlmProvider {
+	case constant.LlmProviderOpenai:
+		llmProvider = serviceLlmOpenaiServiceP.New(
+			serviceLlmOpenaiServiceP.Config{
+				ApiKey:          config.Conf.OpenaiApiKey,
+				BaseUrl:         config.Conf.OpenaiBaseUrl,
+				Model:           config.Conf.LlmModel,
+				ReasoningEffort: config.Conf.LlmReasoningEffort,
+				MaxOutputTokens: config.Conf.LlmMaxOutputTokens,
+			},
+			// ответ без стриминга приходит целиком после генерации (с reasoning —
+			// минуты): заголовков ждём до общего таймаута разбора, его держит контекст
+			httpx.New(httpx.Config{ResponseHeaderTimeout: config.Conf.AgentTimeout, VerifyTLS: true}),
+		)
+	default:
+		errCheck(fmt.Errorf("unknown LLM_PROVIDER %q", config.Conf.LlmProvider), "llm")
+	}
+	slog.Info("llm", "provider", llmProvider.Name(), "model", config.Conf.LlmModel, "reasoning_effort", config.Conf.LlmReasoningEffort)
+
+	// pulse (MCP)
+	a.pulse = servicePulseServiceP.New(
+		config.Conf.PulseMcpUrl,
+		config.Conf.PulseMcpToken,
+		// таймаут вызова инструмента держит контекст разбора
+		httpx.New(httpx.Config{ResponseHeaderTimeout: 2 * time.Minute}),
+	)
+
+	// chart
+	chartService := serviceChartServiceP.New(serviceChartServiceP.Config{Location: location, Theme: config.Conf.ChartTheme})
+
+	// agent
+	agentService := serviceAgentServiceP.New(
+		serviceAgentServiceP.Config{
+			MaxToolCalls: config.Conf.AgentMaxToolCalls,
+			Timeout:      config.Conf.AgentTimeout,
+		},
+		llmProvider, a.pulse, chartService,
+	)
+
+	// dialog
+	dialogRepo := domainDialogRepoMemP.New()
+	dialogService := domainDialogServiceP.New(
+		domainDialogServiceP.Config{MaxTurns: config.Conf.HistoryMaxTurns, Ttl: config.Conf.HistoryTtl},
+		dialogRepo,
+	)
+
+	// ask
+	askUsecase := usecaseAskP.New(dialogService, agentService)
+
+	// http server (API)
+	{
+		keys, err := parseApiKeys(config.Conf.ApiKeys)
+		errCheck(err, "API_KEYS")
+		if len(keys) == 0 {
+			slog.Warn("API_KEYS is empty: every request will get 401")
+		}
+
+		handler := handlerHttpP.New(askUsecase, keys, location)
+		a.httpServer = HttpServerCreate(config.Conf.HttpPort, handler, a.ctx)
+	}
+
+	// system http server (healthcheck, docs, metrics)
+	{
+		a.systemHttpServer = SystemHttpServerCreate(config.Conf.SystemHttpPort)
+	}
+}
+
+func (a *App) PreStartHook() {
+	slog.Info("PreStartHook")
+}
+
+func (a *App) Start() {
+	slog.Info("Starting")
+
+	// http server
+	{
+		go func() {
+			err := a.httpServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCheck(err, "http-server stopped")
+			}
+		}()
+		slog.Info("http-server started " + a.httpServer.Addr)
+	}
+
+	// system http server
+	{
+		go func() {
+			err := a.systemHttpServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCheck(err, "system-http-server stopped")
+			}
+		}()
+		slog.Info("system-http-server started " + a.systemHttpServer.Addr)
+	}
+}
+
+func (a *App) Listen() {
+	signalCtx, signalCtxCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer signalCtxCancel()
+
+	// wait signal
+	<-signalCtx.Done()
+}
+
+func (a *App) Stop() {
+	slog.Info("Shutting down...")
+
+	// stop context: отменяет идущие разборы (клиенты получают 503 canceled)
+	a.ctxCancel()
+
+	// http server
+	{
+		ctx, ctxCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer ctxCancel()
+
+		if err := a.httpServer.Shutdown(ctx); err != nil {
+			slog.Error("http-server shutdown error", "error", err)
+			a.exitCode = 1
+		}
+	}
+
+	// system http server
+	{
+		ctx, ctxCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer ctxCancel()
+
+		if err := a.systemHttpServer.Shutdown(ctx); err != nil {
+			slog.Error("system-http-server shutdown error", "error", err)
+			a.exitCode = 1
+		}
+	}
+}
+
+func (a *App) WaitJobs() {
+	slog.Info("waiting jobs")
+}
+
+func (a *App) Exit() {
+	slog.Info("Exit")
+
+	if err := a.pulse.Close(); err != nil {
+		slog.Warn("pulse session close", "error", err)
+	}
+
+	os.Exit(a.exitCode)
+}
+
+// parseApiKeys — «имя:ключ» → имя → ключ.
+func parseApiKeys(entries []string) (map[string]string, error) {
+	keys := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		name, key, ok := strings.Cut(entry, ":")
+		name, key = strings.TrimSpace(name), strings.TrimSpace(key)
+		if !ok || name == "" || key == "" {
+			return nil, fmt.Errorf("entry %q: expected name:key", name)
+		}
+		if _, dup := keys[name]; dup {
+			return nil, fmt.Errorf("duplicate client %q", name)
+		}
+		keys[name] = key
+	}
+	return keys, nil
+}
+
+func errCheck(err error, msg string) {
+	if err != nil {
+		if msg != "" {
+			err = fmt.Errorf("%s: %w", msg, err)
+		}
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+}

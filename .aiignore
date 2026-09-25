@@ -1,0 +1,41 @@
+# Secrets and local env
+.env
+.env.core
+.env.gateway
+.env.*
+!.env.example
+conf.yml
+*.pem
+*.key
+*.p12
+*.crt
+
+# Build and release artifacts
+build/
+release/
+/mcast
+/*.custom
+*.tar
+*.tar.gz
+*.tar.bz2
+
+# Caches and temp
+.gocache/
+.cache/
+tmp/
+temp/
+*.tmp
+
+# Logs and coverage
+*.log
+cover.out
+cover.html
+
+# Migrations local helpers
+.migrate_scripts
+
+# IDE / OS noise
+.idea/
+.vscode/
+.DS_Store
+*.swp

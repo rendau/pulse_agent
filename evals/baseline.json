@@ -1,0 +1,330 @@
+{
+  "started_at": "2026-09-25T14:58:52.281778+05:00",
+  "url": "https://api.mdev.kz/pulse_bot/debug/ask",
+  "totals": {
+    "cases": 16,
+    "pass": 16,
+    "fail": 0,
+    "errors": 0,
+    "avg_duration_ms": 18558,
+    "input_tokens": 283020,
+    "cached_tokens": 236549,
+    "output_tokens": 4524
+  },
+  "cases": [
+    {
+      "id": "service-health",
+      "question": "что с caravan?",
+      "pass": true,
+      "duration_ms": 19173,
+      "steps": 4,
+      "tool_calls": 4,
+      "usage": {
+        "input_tokens": 19191,
+        "cached_tokens": 17753,
+        "output_tokens": 465,
+        "reasoning_tokens": 185
+      },
+      "tools": [
+        "resolve_service {\"query\":\"caravan\"}",
+        "get_service_snapshot {\"service\":\"caravan\"}",
+        "query_logs {\"service\":\"caravan\",\"level\":\"error\",\"window\":\"1h\"}",
+        "get_timeline {\"service\":\"caravan\",\"window\":\"24h\"}"
+      ]
+    },
+    {
+      "id": "service-usage-translit",
+      "question": "какое потребление сейчас у караван?",
+      "pass": true,
+      "duration_ms": 13378,
+      "steps": 3,
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 13765,
+        "cached_tokens": 12579,
+        "output_tokens": 350,
+        "reasoning_tokens": 188
+      },
+      "tools": [
+        "resolve_service {\"query\":\"караван\"}",
+        "get_service_snapshot {\"service\":\"caravan\"}"
+      ]
+    },
+    {
+      "id": "unknown-service",
+      "question": "что с сервисом зюзябрик?",
+      "pass": true,
+      "duration_ms": 10195,
+      "steps": 4,
+      "tool_calls": 3,
+      "usage": {
+        "input_tokens": 21105,
+        "cached_tokens": 12598,
+        "output_tokens": 160,
+        "reasoning_tokens": 33
+      },
+      "tools": [
+        "resolve_service {\"query\":\"зюзябрик\"}",
+        "resolve_service {\"query\":\"zyuzyabrik zyuzabrik\"}",
+        "list_services {\"page_size\":500}"
+      ]
+    },
+    {
+      "id": "last-commit",
+      "question": "какой последний коммит в caravan?",
+      "pass": true,
+      "duration_ms": 10768,
+      "steps": 3,
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 12946,
+        "cached_tokens": 12550,
+        "output_tokens": 154,
+        "reasoning_tokens": 0
+      },
+      "tools": [
+        "resolve_service {\"query\":\"caravan\"}",
+        "get_changes {\"service\":\"caravan\"}"
+      ]
+    },
+    {
+      "id": "what-changed",
+      "question": "что менялось в delivery за последние сутки?",
+      "pass": true,
+      "duration_ms": 8857,
+      "steps": 3,
+      "tool_calls": 3,
+      "usage": {
+        "input_tokens": 13018,
+        "cached_tokens": 12547,
+        "output_tokens": 189,
+        "reasoning_tokens": 28
+      },
+      "tools": [
+        "resolve_service {\"query\":\"delivery\"}",
+        "get_timeline {\"service\":\"delivery\",\"window\":\"24h\"}",
+        "get_changes {\"service\":\"delivery\",\"window\":\"24h\"}"
+      ]
+    },
+    {
+      "id": "service-errors",
+      "question": "на чём падает credit-broker?",
+      "pass": true,
+      "duration_ms": 29844,
+      "steps": 5,
+      "tool_calls": 5,
+      "usage": {
+        "input_tokens": 29029,
+        "cached_tokens": 23420,
+        "output_tokens": 386,
+        "reasoning_tokens": 36
+      },
+      "tools": [
+        "resolve_service {\"query\":\"credit-broker\"}",
+        "get_service_snapshot {\"service\":\"credit-broker\"}",
+        "query_logs {\"service\":\"credit-broker\",\"workload\":\"credit-broker\",\"level\":\"error\",\"window\":\"1h\"}",
+        "get_timeline {\"service\":\"credit-broker\",\"window\":\"24h\"}",
+        "query_logs {\"service\":\"credit-broker\",\"workload\":\"credit-broker\",\"level\":\"error\",\"window\":\"1h\",\"mode\":\"raw\",\"limit\":30}"
+      ]
+    },
+    {
+      "id": "dependencies",
+      "question": "от каких сервисов зависит delivery?",
+      "pass": true,
+      "duration_ms": 8268,
+      "steps": 3,
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 14084,
+        "cached_tokens": 12543,
+        "output_tokens": 214,
+        "reasoning_tokens": 0
+      },
+      "tools": [
+        "resolve_service {\"query\":\"delivery\"}",
+        "get_dependencies {\"service\":\"delivery\",\"direction\":\"upstream\"}"
+      ]
+    },
+    {
+      "id": "cluster-errors",
+      "question": "есть ли ошибки в логах кластера?",
+      "pass": true,
+      "duration_ms": 9393,
+      "steps": 2,
+      "tool_calls": 1,
+      "usage": {
+        "input_tokens": 9826,
+        "cached_tokens": 8254,
+        "output_tokens": 340,
+        "reasoning_tokens": 92
+      },
+      "tools": [
+        "get_cluster_health {}"
+      ]
+    },
+    {
+      "id": "cluster-errors-day-chart",
+      "question": "какие сервисы больше всего ошибаются в логах за сутки?",
+      "pass": true,
+      "duration_ms": 26753,
+      "steps": 3,
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 15647,
+        "cached_tokens": 13853,
+        "output_tokens": 459,
+        "reasoning_tokens": 80
+      },
+      "tools": [
+        "get_cluster_health {\"window\":\"24h\"}",
+        "render_chart {\"type\":\"bar\",\"title\":\"Ошибки в логах по сервисам за 24 часа\",\"unit\":\"count\",\"series\":[{\"name\":\"Ошибки\",\"points\":[{\"x\":\"seller\",\"y\":851},{\"x\":\"credit-broker\",\"y\":748},{\"x\":\"mb-broker\",\"y\":360},{\"x\":\"stg\",\"y\":210},{\"x\":\"airflow-dags\",\"y\":103},{\"x\":\"delivery\",\"y\":72},{\"x\":\"cerebro\",\"y\":60},{\"x\":\"care-x\",\"y\":24},{\"x\":\"seller-orders-center\",\"y\":22},{\"x\":\"shifts\",\"y\":17}]}]}"
+      ],
+      "charts": [
+        {
+          "title": "Ошибки в логах по сервисам за 24 часа",
+          "bytes": 62530,
+          "png_base64": ""
+        }
+      ]
+    },
+    {
+      "id": "sources",
+      "question": "какие источники данных у тебя сейчас доступны?",
+      "pass": true,
+      "duration_ms": 5464,
+      "steps": 2,
+      "tool_calls": 1,
+      "usage": {
+        "input_tokens": 8487,
+        "cached_tokens": 8254,
+        "output_tokens": 96,
+        "reasoning_tokens": 0
+      },
+      "tools": [
+        "ping {}"
+      ]
+    },
+    {
+      "id": "memory-trend-chart",
+      "question": "как менялась память caravan за последние 6 часов?",
+      "pass": true,
+      "duration_ms": 19022,
+      "steps": 5,
+      "tool_calls": 4,
+      "usage": {
+        "input_tokens": 30912,
+        "cached_tokens": 26376,
+        "output_tokens": 364,
+        "reasoning_tokens": 74
+      },
+      "tools": [
+        "resolve_service {\"query\":\"caravan\"}",
+        "get_service_snapshot {\"service\":\"caravan\"}",
+        "query_metrics {\"service\":\"caravan\",\"metric_id\":\"memory_bytes\",\"window\":\"6h\"}",
+        "render_chart {\"type\":\"line\",\"title\":\"Память caravan за 6 часов, 25 сентября (+05:00)\",\"metrics\":[{\"service\":\"caravan\",\"metric_id\":\"memory_bytes\"}]}"
+      ],
+      "charts": [
+        {
+          "title": "Память caravan за 6 часов, 25 сентября (+05:00)",
+          "bytes": 79033,
+          "png_base64": ""
+        }
+      ]
+    },
+    {
+      "id": "memory-followup-day",
+      "question": "а за сутки?",
+      "pass": true,
+      "duration_ms": 17924,
+      "steps": 5,
+      "tool_calls": 4,
+      "usage": {
+        "input_tokens": 31627,
+        "cached_tokens": 26992,
+        "output_tokens": 429,
+        "reasoning_tokens": 154
+      },
+      "tools": [
+        "resolve_service {\"query\":\"caravan\"}",
+        "get_service_snapshot {\"service\":\"caravan\"}",
+        "query_metrics {\"service\":\"caravan\",\"metric_id\":\"memory_bytes\",\"window\":\"24h\"}",
+        "render_chart {\"type\":\"line\",\"title\":\"Память caravan за сутки, 24–25 сентября (+05:00)\",\"metrics\":[{\"service\":\"caravan\",\"metric_id\":\"memory_bytes\"}]}"
+      ],
+      "charts": [
+        {
+          "title": "Память caravan за сутки, 24–25 сентября (+05:00)",
+          "bytes": 90359,
+          "png_base64": ""
+        }
+      ]
+    },
+    {
+      "id": "order-found",
+      "question": "что по заказу 41314079?",
+      "pass": true,
+      "duration_ms": 26655,
+      "steps": 3,
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 26735,
+        "cached_tokens": 19406,
+        "output_tokens": 282,
+        "reasoning_tokens": 31
+      },
+      "tools": [
+        "query_logs {\"pattern\":\"41314079\"}",
+        "get_service_info {\"service\":\"mb-broker\"}"
+      ]
+    },
+    {
+      "id": "order-hours",
+      "question": "что было с заказом 41314079 24 сентября с 13 до 14?",
+      "pass": true,
+      "duration_ms": 10258,
+      "steps": 2,
+      "tool_calls": 1,
+      "usage": {
+        "input_tokens": 14844,
+        "cached_tokens": 8263,
+        "output_tokens": 274,
+        "reasoning_tokens": 36
+      },
+      "tools": [
+        "query_logs {\"pattern\":\"41314079\",\"end\":\"2026-09-24T14:00\",\"window\":\"1h\"}"
+      ]
+    },
+    {
+      "id": "order-not-found",
+      "question": "что по заказу 777000111999?",
+      "pass": true,
+      "duration_ms": 78548,
+      "steps": 4,
+      "tool_calls": 3,
+      "usage": {
+        "input_tokens": 17659,
+        "cached_tokens": 17051,
+        "output_tokens": 338,
+        "reasoning_tokens": 140
+      },
+      "tools": [
+        "query_logs {\"pattern\":\"777000111999\"}",
+        "resolve_service {\"query\":\"заказы заказ order\"}",
+        "query_logs {\"pattern\":\"777000111999\",\"window\":\"24h\"}"
+      ]
+    },
+    {
+      "id": "off-topic",
+      "question": "какая сегодня погода в Алматы?",
+      "pass": true,
+      "duration_ms": 2439,
+      "steps": 1,
+      "tool_calls": 0,
+      "usage": {
+        "input_tokens": 4145,
+        "cached_tokens": 4110,
+        "output_tokens": 24,
+        "reasoning_tokens": 0
+      }
+    }
+  ]
+}
