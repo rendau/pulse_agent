@@ -102,7 +102,7 @@ func validateEndpoint(e Endpoint) {
 	}
 	for _, m := range paramPathRe.FindAllStringSubmatch(e.Path, -1) {
 		if _, ok := e.Params[m[1]]; !ok {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: path parameter {%s} is not declared", e.Id, m[1]))
+			panic(fmt.Sprintf("pulsekit: endpoint %s: path parameter %s is not declared", e.Id, m[0]))
 		}
 	}
 	for name, p := range e.Params {
