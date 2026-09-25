@@ -13,9 +13,6 @@ import (
 	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
 )
 
-// questionChars — текст вопроса в журнале обрезается: журнал для обзора, не для архива.
-const questionChars = 300
-
 type Service struct {
 	repo RepoI
 }
@@ -25,47 +22,47 @@ func New(repo RepoI) *Service {
 }
 
 func (s *Service) Append(ctx context.Context, e *model.Entry) error {
-	if r := []rune(e.Question); len(r) > questionChars {
-		e.Question = string(r[:questionChars]) + "…"
-	}
 	if err := s.repo.Append(ctx, e); err != nil {
 		return fmt.Errorf("repo.Append: %w", err)
 	}
 	return nil
 }
 
-// Recent — последние записи по фильтру, новые — первыми.
+// Recent — записи по фильтру, новые — первыми, без ответа и хода разбора.
 func (s *Service) Recent(ctx context.Context, f model.Filter) ([]*model.Entry, error) {
-	entries, err := s.repo.List(ctx)
+	entries, err := s.repo.List(ctx, f)
 	if err != nil {
 		return nil, fmt.Errorf("repo.List: %w", err)
 	}
-
-	result := make([]*model.Entry, 0, min(len(entries), max(f.Limit, 0)))
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
-		if (f.Client != "" && e.Client != f.Client) || (f.Outcome != "" && e.Outcome != f.Outcome) {
-			continue
-		}
-		result = append(result, e)
-		if f.Limit > 0 && len(result) >= f.Limit {
-			break
-		}
-	}
-	return result, nil
+	return entries, nil
 }
 
-// Stats — сводка по окну журнала: по системам — исходы, время, токены; частота инструментов.
-func (s *Service) Stats(ctx context.Context) (*model.Stats, error) {
-	entries, err := s.repo.List(ctx)
+// Get — запись целиком: ответ и ход разбора; nil — нет такой (или уже удалена по сроку).
+func (s *Service) Get(ctx context.Context, id int64) (*model.Entry, error) {
+	e, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("repo.Get: %w", err)
+	}
+	return e, nil
+}
+
+// DeleteBefore удаляет записи старше before (срок хранения).
+func (s *Service) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
+	n, err := s.repo.DeleteBefore(ctx, before)
+	if err != nil {
+		return 0, fmt.Errorf("repo.DeleteBefore: %w", err)
+	}
+	return n, nil
+}
+
+// Stats — сводка за окно с since: по системам — исходы, время, токены; частота инструментов.
+func (s *Service) Stats(ctx context.Context, since time.Time) (*model.Stats, error) {
+	entries, err := s.repo.List(ctx, model.Filter{Since: since})
 	if err != nil {
 		return nil, fmt.Errorf("repo.List: %w", err)
 	}
 
-	stats := &model.Stats{Questions: len(entries)}
-	if len(entries) > 0 {
-		stats.Since = entries[0].At
-	}
+	stats := &model.Stats{Since: since, Questions: len(entries)}
 
 	byClient := lo.GroupBy(entries, func(e *model.Entry) string { return e.Client })
 	for client, list := range byClient {

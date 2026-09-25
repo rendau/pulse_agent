@@ -16,7 +16,8 @@ type AskUsecaseI interface {
 
 type MonitorUsecaseI interface {
 	Recent(ctx context.Context, f journalModel.Filter) ([]*journalModel.Entry, error)
-	Stats(ctx context.Context) (*journalModel.Stats, error)
+	Entry(ctx context.Context, id int64) (*journalModel.Entry, error)
+	Stats(ctx context.Context, window string) (*journalModel.Stats, error)
 	Info(ctx context.Context) *monitorModel.Info
 }
 

@@ -44,6 +44,7 @@ const (
 	codeUnauthorized   = "unauthorized"
 	codeBusy           = "busy"
 	codeForbidden      = "forbidden"
+	codeNotFound       = "not_found" // только /debug/journal/{id}
 	codeTimeout        = "timeout"
 	codeCanceled       = "canceled"
 	codeInternal       = "internal"
@@ -216,6 +217,8 @@ func writeFail(w http.ResponseWriter, r *http.Request, client string, err error)
 	switch {
 	case errors.Is(err, errs.InvalidRequest):
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
+	case errors.Is(err, errs.ObjectNotFound):
+		writeError(w, http.StatusNotFound, codeNotFound, err.Error())
 	case errors.Is(err, errs.Busy):
 		writeError(w, http.StatusConflict, codeBusy, lo.Ternary(err.Error() == errs.Busy.Error(),
 			"previous question in this conversation is still running", err.Error()))

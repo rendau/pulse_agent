@@ -27,8 +27,13 @@ var Conf = struct {
 	// прогон: вопросов одновременно и потолок времени на весь прогон
 	EvalParallel int           `env:"EVAL_PARALLEL" envDefault:"3"`
 	EvalTimeout  time.Duration `env:"EVAL_TIMEOUT" envDefault:"20m"`
-	// журнал вопросов (мониторинг /debug/recent, /debug/stats): последние N в памяти
-	JournalSize int `env:"JOURNAL_SIZE" envDefault:"500"`
+	// журнал вопросов (мониторинг и разбор ответов: /debug/recent, /debug/journal/{id},
+	// /debug/stats) — в Postgres; пусто — в памяти, последние JOURNAL_SIZE. База создаётся
+	// сама, если её нет (нужно право CREATEDB), миграции — на старте.
+	PgDsn string `env:"PG_DSN"`
+	// срок хранения журнала в Postgres, дней
+	JournalRetentionDays int `env:"JOURNAL_RETENTION_DAYS" envDefault:"90"`
+	JournalSize          int `env:"JOURNAL_SIZE" envDefault:"500"`
 
 	// LLM: провайдер выбирает адаптер (internal/service/llm/<provider>)
 	LlmProvider        string `env:"LLM_PROVIDER" envDefault:"openai"`

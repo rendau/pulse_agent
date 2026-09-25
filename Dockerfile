@@ -6,5 +6,6 @@ WORKDIR /app
 
 COPY ./cmd/build/. ./
 COPY ./docs ./docs
+COPY ./migrations ./migrations
 
 CMD ["./svc"]

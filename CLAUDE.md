@@ -11,8 +11,10 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 
 Выделен из `pulse_bot` (2026-09-25): агентный цикл, LLM, графики, история и эталонные вопросы
 переехали сюда, бот — тонкий клиент этого API. Согласованные отклонения от шаблона gotemplate:
-- gRPC/grpc-gateway/proto/swagger, Postgres и миграции, трассировка убраны: транспорт — JSON поверх
-  HTTP, история бесед — в памяти (одна реплика).
+- gRPC/grpc-gateway/proto/swagger и трассировка убраны: транспорт — JSON поверх HTTP, история
+  бесед — в памяти (одна реплика).
+- Postgres — только для журнала вопросов (с 2026-09-25): отдельная база `pulse_agent` в `pulse-pg`
+  (общий Postgres чарта pulse), срок хранения 90 дней. Без `PG_DSN` журнал — в памяти.
 - Ответ синхронный (асинхронного режима пока нет — решение заказчика).
 
 Конвенции этого стека вынесены в глобальные Claude Code скиллы (`golang-service`,
@@ -26,6 +28,7 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `cmd/main.go` — entrypoint, поднимает `internal/app.App`; `cmd/eval` — эталонные вопросы.
 - `internal/` — бизнес-логика и инфраструктура (закрытые пакеты).
 - `docs/` — контракт API (`agent-api.md`), выдаётся через `/docs/*`.
+- `migrations/` — SQL миграции журнала (golang-migrate; единый `000001_init` до первого деплоя).
 - `evals/` — эталонные вопросы (`cases.yaml`) и эталонный прогон (`baseline.json`).
 - `Dockerfile`, `Makefile` — сборка (`make build` подставляет версию через ldflags).
 - `.env.example` — пример окружения.
@@ -38,23 +41,32 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     запросы в контексте приложения (остановка отменяет разборы).
   - `system_http_server.go` — системный HTTP-сервер (`SYSTEM_HTTP_PORT`, дефолт 3003):
     /healthcheck, /docs/*, /metrics.
+  - `migration.go` — `ensureDatabase` (базы из `PG_DSN` нет — создаёт её, нужно право CREATEDB)
+    и миграции из `migrations/`; `pgpool.go` — пул на 3 соединения (pulse-pg общий).
 - `internal/config/` — конфигурация через env (`config.go`).
 - `internal/handler/http/` — JSON-API: `POST /v1/ask`, `POST /v1/reset`, `POST /v1/eval` (прогон
   эталонов — системам из `EVAL_CLIENTS`); bearer-ключ → имя системы (`withClient`, сравнение за
   постоянное время); `dto/` — контракт (`docs/agent-api.md`), неизвестные поля запроса — 400; коды
   ошибок `invalid_request`/`unauthorized`/`forbidden`/`busy`/`canceled`/`timeout`/`internal`.
   `debug.go` — ручки разработчика (только `DEBUG_TOKEN`; он же годится для `/v1/*` как система
-  `debug`): `POST /debug/eval`, `GET /debug/eval/last`, `GET /debug/recent?client=&outcome=&limit=`,
-  `GET /debug/stats`, `GET /debug/info`. Прогон в сервисе идёт тем же путём, что вопрос API
+  `debug`): `POST /debug/eval`, `GET /debug/eval/last`,
+  `GET /debug/recent?client=&outcome=&limit=&before_id=` (список без ответа и хода разбора, новые —
+  первыми, `before_id` — листать), `GET /debug/journal/{id}` (вопрос целиком: ответ, вызовы
+  инструментов с аргументами и ответами pulse; нет — 404 `not_found`), `GET /debug/stats?window=7d`
+  (сводка за окно: `Nd` или длительность Go, по умолчанию 7d, не больше срока хранения),
+  `GET /debug/info`. Прогон в сервисе идёт тем же путём, что вопрос API
   (`answer`), от системы `eval`.
 - `internal/usecase/ask/` — вопрос: формат, «один вопрос за раз на беседу», история беседы (ключ —
   `клиент/conversation_id`: беседы систем не пересекаются; без conversation_id — без истории),
   агент, метрики по клиентам.
-- `internal/usecase/monitor/` — мониторинг для `/debug/*`: последние вопросы и сводка по журналу,
-  сведения об агенте и доступность pulse (каталог инструментов).
-- `internal/domain/journal/` — журнал вопросов (кто, что, исход, время, инструменты, токены):
-  кольцо последних `JOURNAL_SIZE` в памяти (`repo/mem`), сводка по системам и инструментам;
-  пишет usecase `ask` на каждый вопрос, включая отказы.
+- `internal/usecase/monitor/` — мониторинг для `/debug/*`: последние вопросы, вопрос целиком,
+  сводка по журналу за окно, сведения об агенте и доступность pulse (каталог инструментов).
+- `internal/domain/journal/` — журнал вопросов (кто, что, исход, время, инструменты, токены,
+  итоговый ответ и ход разбора — вызовы с аргументами и ответами pulse целиком): таблица `journal`
+  (`repo/db`; ход разбора — jsonb `trace` байтовым способом через repo-локальную `traceJSON`,
+  аргументы — JSON-объектом, `answer`/`trace` сжаты lz4; список читает только лёгкие колонки
+  `BriefColumns`), без `PG_DSN` — кольцо последних `JOURNAL_SIZE` в памяти (`repo/mem`); сводка по
+  системам и инструментам; пишет usecase `ask` на каждый вопрос, включая отказы.
 - `internal/domain/dialog/` — история беседы: пары «вопрос — итоговый ответ» (без вызовов
   инструментов), последние N, сброс после тишины; `repo/mem` — в памяти процесса.
 - `internal/service/` — сервисные модули (раскладка — скилл `golang-service`):
@@ -80,6 +92,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     `llm/<provider>/service`; сейчас `openai` (`text.format: json_schema`, strict).
   - `pulse` — MCP-клиент pulse: ленивое подключение, переподключение при потере сессии,
     bearer-токен, каталог инструментов перечитывается на каждый разбор.
+  - `retention` — фоновая чистка журнала: раз в час удаляет записи старше
+    `JOURNAL_RETENTION_DAYS` (первый проход — на старте); только при журнале в Postgres.
   - `chart` — графики (`gonum.org/v1/plot`, PNG в памяти, шрифты с кириллицей вшиты): `line` —
     ряды во времени (ось по Алматы, круглые метки), `bar` — горизонтальные столбцы с подписями
     значений; единицы (`bytes`, `ratio`, `seconds`, `cores`, `rps`) — в привычные (МБ десятичные,
@@ -174,7 +188,8 @@ domain service → repo
 
 ### Тип `App`
 - В поля выносится **только то, чем нужно управлять после `Init`**: серверы (останавливать),
-  сессия pulse (закрывать), корневой `ctx` с его `ctxCancel` и `exitCode`.
+  сессия pulse и pgx pool (закрывать), чистка журнала (ждать), корневой `ctx` с его `ctxCancel` и
+  `exitCode`.
 - Локальные звенья графа (repo, service, usecase, handler) — локальные переменные внутри `Init`.
 
 ### Импорты Композиционного корня
@@ -187,15 +202,16 @@ domain service → repo
 Фиксированный набор методов, каждый делает ровно одно:
 - `Init` — создание и связывание всех зависимостей.
 - `PreStartHook` — действия перед стартом.
-- `Start` — запуск серверов.
+- `Start` — запуск чистки журнала и серверов.
 - `Listen` — блокировка до сигнала ОС (`SIGINT`/`SIGTERM`).
 - `Stop` — отмена контекста (отменяет идущие разборы — клиенты получают 503 `canceled`) и
   graceful-остановка серверов.
-- `WaitJobs` — ожидание фоновых задач (сейчас нет).
-- `Exit` — закрытие ресурсов (сессия pulse) и выход с `exitCode`.
+- `WaitJobs` — ожидание фоновых задач (чистка журнала).
+- `Exit` — закрытие ресурсов (сессия pulse, pgx pool) и выход с `exitCode`.
 
 ### Стиль `Init`
-- Сборка идёт **сверху вниз в порядке зависимостей**: инфраструктура (логгер) → сервисы (llm,
+- Сборка идёт **сверху вниз в порядке зависимостей**: инфраструктура (логгер, база журнала и
+  миграции) → сервисы (llm,
   pulse, chart, agent) → доменные блоки → usecase → транспорт → серверы.
 - Каждый логический блок предваряется коротким комментарием-меткой в нижнем регистре.
 - Блоки, которым не нужны внешние переменные, оборачиваются в анонимный блок `{ ... }`.
@@ -219,7 +235,8 @@ domain service → repo
 - Обязательные: `PULSE_MCP_URL`; для OpenAI — `OPENAI_API_KEY`; `API_KEYS` — `имя:ключ` через запятую
   (секрет; имя системы — в журнале и метриках). `DEBUG_TOKEN` — ключ разработчика (секрет; пусто —
   `/debug` закрыт); `EVAL_CLIENTS` — кому можно `/v1/eval` (бот); `EVAL_PARALLEL` (3),
-  `EVAL_TIMEOUT` (20m); `JOURNAL_SIZE` (500).
+  `EVAL_TIMEOUT` (20m). Журнал: `PG_DSN` (секрет; `postgres://…@pulse-pg.default:5432/pulse_agent`,
+  пусто — в памяти), `JOURNAL_RETENTION_DAYS` (90), `JOURNAL_SIZE` (500, только в памяти).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:
@@ -252,7 +269,7 @@ domain service → repo
 
 ### Сборка
 - `make build` создаёт бинарник `cmd/build/svc`.
-- Dockerfile копирует бинарник и `docs/` в `/app`.
+- Dockerfile копирует бинарник, `docs/` и `migrations/` в `/app`.
 
 ### Flow проверки изменений
 ```
@@ -260,6 +277,9 @@ gofmt  →  go vet ./...  →  go test ./...  →  make eval (после деп�
 ```
 
 ### Тестовый стенд
+- Postgres — контейнер `pulse-pg` из стенда pulse (`localhost:5440`, `postgres/postgres`); база
+  журнала `pulse_agent` создаётся агентом сама: `PG_DSN=postgres://postgres:postgres@localhost:5440/pulse_agent?sslmode=disable`.
+  Живой тест репозитория: `PG_LIVE_DSN=<тот же DSN> go test ./internal/domain/journal/repo/db/ -run TestLive -v`.
 - Локально: pulse — по стенду pulse (`localhost:9091/mcp`, `devtoken`), агент —
   `HTTP_PORT=9092 SYSTEM_HTTP_PORT=3014 API_KEYS=dev:devkey`, вопрос:
   ```

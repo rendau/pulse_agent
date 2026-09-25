@@ -1,5 +1,6 @@
-// Package model — журнал вопросов агенту: кто, что, чем кончилось, сколько стоило (мониторинг:
-// /debug/recent, /debug/stats). В памяти процесса, последние N.
+// Package model — журнал вопросов агенту: кто, что спросил, что агент ответил и как к этому
+// пришёл, сколько стоило (мониторинг и разбор ответов: /debug/recent, /debug/journal/{id},
+// /debug/stats). Хранится в Postgres (срок — JOURNAL_RETENTION_DAYS), без PG_DSN — в памяти.
 package model
 
 import "time"
@@ -15,10 +16,12 @@ const (
 
 // Entry — один вопрос.
 type Entry struct {
+	Id             int64
 	At             time.Time
 	Client         string
 	ConversationId string
 	UserId         string
+	UserName       string
 	Question       string
 	Format         string
 	ClientSchema   bool
@@ -35,16 +38,34 @@ type Entry struct {
 	CachedTokens int64
 	OutputTokens int64
 	Charts       int
+
+	// Answer и Trace — только у записи целиком (Get); в выборках списком пусто.
+	// Answer — итоговый ответ (формат json и схема клиента — JSON как есть).
+	Answer string
+	Trace  []ToolCall
 }
 
-// Filter — выборка журнала: пустые поля — без фильтра; Limit ≤ 0 — все.
+// ToolCall — вызов инструмента в ходе разбора: что модель попросила и что получила.
+type ToolCall struct {
+	Step      int // шаг модели, запросивший вызов (с 1)
+	Name      string
+	Arguments string // JSON аргументов от модели
+	Status    string // ok | error | tool_error | skipped (agent/model.ToolStatus*)
+	Output    string // что ушло модели, целиком
+	Duration  time.Duration
+}
+
+// Filter — выборка журнала, новые — первыми: пустые поля — без фильтра; BeforeId — записи
+// старше этой (листание); Limit ≤ 0 — все.
 type Filter struct {
-	Client  string
-	Outcome string
-	Limit   int
+	Client   string
+	Outcome  string
+	Since    time.Time
+	BeforeId int64
+	Limit    int
 }
 
-// Stats — сводка по журналу (окно — последние N вопросов, Since — самый старый в окне).
+// Stats — сводка по журналу за окно (Since — начало окна).
 type Stats struct {
 	Since     time.Time
 	Questions int

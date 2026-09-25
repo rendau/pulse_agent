@@ -169,7 +169,7 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 // record — запись вопроса в журнал; ошибка журнала не роняет ответ.
 func (u *Usecase) record(ctx context.Context, q *model.Question, answer *model.Answer, err error, duration time.Duration) {
 	entry := &journalModel.Entry{
-		At: time.Now(), Client: q.Client, ConversationId: q.ConversationId, UserId: q.User.Id,
+		At: time.Now(), Client: q.Client, ConversationId: q.ConversationId, UserId: q.User.Id, UserName: q.User.Name,
 		Question: strings.TrimSpace(q.Text), Format: q.Format, ClientSchema: q.ResponseSchema != nil,
 		Duration: duration,
 	}
@@ -189,6 +189,11 @@ func (u *Usecase) record(ctx context.Context, q *model.Question, answer *model.A
 		entry.Steps, entry.ToolCalls, entry.Charts = answer.Steps, answer.ToolCalls, len(answer.Charts)
 		entry.InputTokens, entry.CachedTokens, entry.OutputTokens = answer.Usage.InputTokens, answer.Usage.CachedTokens, answer.Usage.OutputTokens
 		entry.Tools = lo.Map(answer.Trace, func(t agentModel.ToolTrace, _ int) string { return t.Name })
+		entry.Trace = lo.Map(answer.Trace, func(t agentModel.ToolTrace, _ int) journalModel.ToolCall {
+			return journalModel.ToolCall{Step: t.Step, Name: t.Name, Arguments: t.Arguments, Status: t.Status, Output: t.Output, Duration: t.Duration}
+		})
+		// схема клиента — ответ только в Json
+		entry.Answer = lo.Ternary(answer.Text == "" && answer.Json != nil, string(answer.Json), answer.Text)
 	}
 
 	if jerr := u.journal.Append(context.WithoutCancel(ctx), entry); jerr != nil {

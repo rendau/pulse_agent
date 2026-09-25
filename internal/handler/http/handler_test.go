@@ -43,10 +43,21 @@ var almaty, _ = time.LoadLocation("Asia/Almaty")
 type fakeMonitor struct{}
 
 func (fakeMonitor) Recent(_ context.Context, f journalModel.Filter) ([]*journalModel.Entry, error) {
-	return []*journalModel.Entry{{Client: f.Client, Question: "q", Outcome: "answered", Duration: time.Second, Tools: []string{"ping"}}}, nil
+	return []*journalModel.Entry{{Id: 7, Client: f.Client, Question: "q", Outcome: "answered", Duration: time.Second, Tools: []string{"ping"}}}, nil
 }
 
-func (fakeMonitor) Stats(context.Context) (*journalModel.Stats, error) {
+func (fakeMonitor) Entry(_ context.Context, id int64) (*journalModel.Entry, error) {
+	if id != 7 {
+		return nil, errs.ObjectNotFound
+	}
+	return &journalModel.Entry{Id: 7, Client: "pulse_bot", Question: "q", Outcome: "answered", Answer: "всё ок",
+		Trace: []journalModel.ToolCall{
+			{Step: 1, Name: "resolve_service", Arguments: `{"query":"caravan"}`, Status: "ok", Output: "{}"},
+			{Step: 2, Name: "get_service_snapshot", Arguments: `{oops`, Status: "tool_error"},
+		}}, nil
+}
+
+func (fakeMonitor) Stats(context.Context, string) (*journalModel.Stats, error) {
 	return &journalModel.Stats{Questions: 1, Clients: []journalModel.ClientStats{{Client: "pulse_bot", Questions: 1}}}, nil
 }
 
@@ -236,6 +247,23 @@ func TestDebug(t *testing.T) {
 	require.Len(t, recent, 1)
 	assert.Equal(t, "pulse_bot", recent[0]["client"])
 	assert.InDelta(t, 1000, recent[0]["duration_ms"], 0)
+	assert.InDelta(t, 7, recent[0]["id"], 0)
+
+	// вопрос целиком: ответ и ход разбора; аргументы — объектом, невалидные — строкой
+	rec, rep = serveMethod(t, h, http.MethodGet, "/debug/journal/7", "k-debug", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "всё ок", rep["answer"])
+	trace := rep["trace"].([]any)
+	require.Len(t, trace, 2)
+	assert.Equal(t, map[string]any{"query": "caravan"}, trace[0].(map[string]any)["arguments"])
+	assert.Equal(t, "{oops", trace[1].(map[string]any)["arguments"])
+
+	rec, rep = serveMethod(t, h, http.MethodGet, "/debug/journal/8", "k-debug", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "not_found", rep["code"])
+
+	rec, _ = serveMethod(t, h, http.MethodGet, "/debug/journal/x", "k-debug", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// ключ разработчика годится и для вопросов — как система debug
 	ask := &fakeAsk{answer: &askModel.Answer{Text: "ok"}}

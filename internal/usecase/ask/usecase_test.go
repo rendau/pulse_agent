@@ -129,10 +129,10 @@ func TestAsk_ResponseSchema(t *testing.T) {
 func TestAsk_Journal(t *testing.T) {
 	journal := journalServiceP.New(journalMem.New(10))
 	agent := &fakeAgent{result: &agentModel.Result{Answer: "ok", Incomplete: "timeout", ToolCalls: 1,
-		Trace: []agentModel.ToolTrace{{Name: "query_logs"}}}}
+		Trace: []agentModel.ToolTrace{{Step: 1, Name: "query_logs", Arguments: `{"pattern":"1"}`, Status: "ok", Output: "{}", Duration: time.Second}}}}
 	uc := New(dialogServiceP.New(dialogServiceP.Config{}, mem.New()), journal, agent)
 
-	_, err := uc.Ask(context.Background(), &model.Question{Client: "bot", User: model.User{Id: "7"}, Text: "что по заказу 1?"})
+	_, err := uc.Ask(context.Background(), &model.Question{Client: "bot", User: model.User{Id: "7", Name: "Иван"}, Text: "что по заказу 1?"})
 	require.NoError(t, err)
 	_, err = uc.Ask(context.Background(), &model.Question{Client: "bot", Text: " "})
 	require.Error(t, err)
@@ -145,4 +145,12 @@ func TestAsk_Journal(t *testing.T) {
 	assert.Equal(t, "timeout", entries[1].Incomplete)
 	assert.Equal(t, []string{"query_logs"}, entries[1].Tools)
 	assert.Equal(t, "7", entries[1].UserId)
+	assert.Empty(t, entries[1].Answer, "в списке — без ответа и хода разбора")
+
+	full, err := journal.Get(context.Background(), entries[1].Id)
+	require.NoError(t, err)
+	require.NotNil(t, full)
+	assert.Equal(t, "Иван", full.UserName)
+	assert.Equal(t, "ok", full.Answer)
+	assert.Equal(t, []journalModel.ToolCall{{Step: 1, Name: "query_logs", Arguments: `{"pattern":"1"}`, Status: "ok", Output: "{}", Duration: time.Second}}, full.Trace)
 }

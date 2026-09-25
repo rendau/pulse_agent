@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/samber/lo"
 
 	"github.com/mechta-market/pulse_agent/evals"
@@ -19,6 +20,7 @@ import (
 	"github.com/mechta-market/pulse_agent/internal/constant"
 	domainDialogRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/dialog/repo/mem"
 	domainDialogServiceP "github.com/mechta-market/pulse_agent/internal/domain/dialog/service"
+	domainJournalRepoDbP "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/db"
 	domainJournalRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/mem"
 	domainJournalServiceP "github.com/mechta-market/pulse_agent/internal/domain/journal/service"
 	"github.com/mechta-market/pulse_agent/internal/eval"
@@ -29,13 +31,18 @@ import (
 	"github.com/mechta-market/pulse_agent/internal/service/llm"
 	serviceLlmOpenaiServiceP "github.com/mechta-market/pulse_agent/internal/service/llm/openai/service"
 	servicePulseServiceP "github.com/mechta-market/pulse_agent/internal/service/pulse/service"
+	"github.com/mechta-market/pulse_agent/internal/service/retention"
+	serviceRetentionServiceP "github.com/mechta-market/pulse_agent/internal/service/retention/service"
 	usecaseAskP "github.com/mechta-market/pulse_agent/internal/usecase/ask"
 	usecaseMonitorP "github.com/mechta-market/pulse_agent/internal/usecase/monitor"
 	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
 )
 
 type App struct {
-	pulse *servicePulseServiceP.Service
+	pgpool *pgxpool.Pool // nil — журнал в памяти (PG_DSN пуст)
+	pulse  *servicePulseServiceP.Service
+
+	journalRetention retention.Retention // nil — журнал в памяти
 
 	httpServer       *http.Server
 	systemHttpServer *http.Server
@@ -55,6 +62,18 @@ func (a *App) Init() {
 
 	location, err := time.LoadLocation(constant.Timezone)
 	errCheck(err, "timezone")
+
+	// pgpool (журнал вопросов)
+	if config.Conf.PgDsn != "" {
+		errCheck(ensureDatabase(config.Conf.PgDsn), "ensure database")
+		runMigrations(config.Conf.PgDsn)
+		slog.Info("PG-migrations have been successfully applied")
+
+		a.pgpool, err = initPgPool(config.Conf.PgDsn)
+		errCheck(err, "pgpool init")
+	} else {
+		slog.Warn("PG_DSN is empty: journal is kept in memory (last JOURNAL_SIZE questions)")
+	}
 
 	// llm
 	var llmProvider llm.Provider
@@ -105,8 +124,18 @@ func (a *App) Init() {
 	)
 
 	// journal
-	journalRepo := domainJournalRepoMemP.New(config.Conf.JournalSize)
-	journalService := domainJournalServiceP.New(journalRepo)
+	var journalService *domainJournalServiceP.Service
+	journalStorage, journalKeep := "memory", time.Duration(0)
+	if a.pgpool != nil {
+		journalStorage, journalKeep = "postgres", time.Duration(config.Conf.JournalRetentionDays)*24*time.Hour
+		journalService = domainJournalServiceP.New(domainJournalRepoDbP.New(a.pgpool))
+		a.journalRetention = serviceRetentionServiceP.New(
+			serviceRetentionServiceP.Config{Keep: journalKeep, Interval: time.Hour},
+			journalService,
+		)
+	} else {
+		journalService = domainJournalServiceP.New(domainJournalRepoMemP.New(config.Conf.JournalSize))
+	}
 
 	// ask
 	askUsecase := usecaseAskP.New(dialogService, journalService, agentService)
@@ -123,16 +152,18 @@ func (a *App) Init() {
 
 	// monitor
 	monitorUsecase := usecaseMonitorP.New(monitorModel.Info{
-		Version:         constant.Version,
-		StartedAt:       time.Now(),
-		LlmProvider:     llmProvider.Name(),
-		LlmModel:        config.Conf.LlmModel,
-		ReasoningEffort: config.Conf.LlmReasoningEffort,
-		MaxToolCalls:    config.Conf.AgentMaxToolCalls,
-		Timeout:         config.Conf.AgentTimeout,
-		Clients:         lo.Keys(keys),
-		EvalClients:     config.Conf.EvalClients,
-		EvalCases:       evalKeeper.Cases(),
+		Version:          constant.Version,
+		StartedAt:        time.Now(),
+		LlmProvider:      llmProvider.Name(),
+		LlmModel:         config.Conf.LlmModel,
+		ReasoningEffort:  config.Conf.LlmReasoningEffort,
+		MaxToolCalls:     config.Conf.AgentMaxToolCalls,
+		Timeout:          config.Conf.AgentTimeout,
+		Clients:          lo.Keys(keys),
+		EvalClients:      config.Conf.EvalClients,
+		EvalCases:        evalKeeper.Cases(),
+		Journal:          journalStorage,
+		JournalRetention: journalKeep,
 	}, journalService, a.pulse)
 
 	// http server (API)
@@ -158,6 +189,11 @@ func (a *App) PreStartHook() {
 
 func (a *App) Start() {
 	slog.Info("Starting")
+
+	// journal retention
+	if a.journalRetention != nil {
+		a.journalRetention.Start(a.ctx)
+	}
 
 	// http server
 	{
@@ -221,6 +257,11 @@ func (a *App) Stop() {
 
 func (a *App) WaitJobs() {
 	slog.Info("waiting jobs")
+
+	// journal retention
+	if a.journalRetention != nil {
+		a.journalRetention.Wait()
+	}
 }
 
 func (a *App) Exit() {
@@ -228,6 +269,10 @@ func (a *App) Exit() {
 
 	if err := a.pulse.Close(); err != nil {
 		slog.Warn("pulse session close", "error", err)
+	}
+
+	if a.pgpool != nil {
+		a.pgpool.Close()
 	}
 
 	os.Exit(a.exitCode)
