@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mechta-market/pulse_agent/internal/errs"
 	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
 )
 
@@ -171,4 +172,18 @@ func TestComplete_OutputSchema(t *testing.T) {
 	assert.Equal(t, "answer", format["name"])
 	assert.Equal(t, true, format["strict"])
 	assert.NotNil(t, format["schema"])
+}
+
+func TestComplete_BadRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Invalid schema for response_format 'client_answer'","type":"invalid_request_error","param":"text.format.schema","code":"invalid_json_schema"}}`))
+	}))
+	defer srv.Close()
+
+	_, err := New(Config{ApiKey: "sk-test", BaseUrl: srv.URL, Model: "gpt-6-sol"}, srv.Client()).
+		Complete(context.Background(), &llmModel.Request{Messages: []llmModel.Message{{Role: llmModel.RoleUser, Text: "q"}}})
+	require.ErrorIs(t, err, errs.InvalidRequest)
+	assert.ErrorContains(t, err, "Invalid schema")
 }

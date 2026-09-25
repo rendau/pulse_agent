@@ -18,6 +18,8 @@ type Question struct {
 	Format string
 	// Charts — клиент принимает графики
 	Charts bool
+	// ResponseSchema — JSON Schema ответа от клиента (RPC); задана — формат json
+	ResponseSchema map[string]any
 }
 
 type User struct {
@@ -30,6 +32,8 @@ type User struct {
 type Answer struct {
 	Text       string
 	Structured *agentModel.Structured
+	// Json — ответ в JSON (формат json или схема клиента); nil — текстовый формат
+	Json       []byte
 	Incomplete string
 	Charts     []agentModel.Chart
 

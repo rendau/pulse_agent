@@ -66,6 +66,12 @@ func (u *Usecase) Ask(ctx context.Context, q *model.Question) (*model.Answer, er
 		return nil, fmt.Errorf("%w: question is longer than %d characters", errs.InvalidRequest, maxQuestionChars)
 	}
 	format := lo.CoalesceOrEmpty(q.Format, agentConstant.FormatTelegram)
+	if q.ResponseSchema != nil {
+		if q.Format != "" && q.Format != agentConstant.FormatJson {
+			return nil, fmt.Errorf("%w: response_schema requires format json (or empty), got %q", errs.InvalidRequest, q.Format)
+		}
+		format = agentConstant.FormatJson
+	}
 	if !agentConstant.FormatKnown(format) {
 		return nil, fmt.Errorf("%w: format %q; expected telegram, markdown, plain or json", errs.InvalidRequest, q.Format)
 	}
@@ -106,9 +112,10 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 		History: lo.Map(history, func(t *dialogModel.Turn, _ int) agentModel.Turn {
 			return agentModel.Turn{Question: t.Question, Answer: t.Answer}
 		}),
-		Question: text,
-		Format:   format,
-		Charts:   q.Charts,
+		Question:       text,
+		Format:         format,
+		Charts:         q.Charts,
+		ResponseSchema: q.ResponseSchema,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("agent.Run: %w", err)
@@ -119,6 +126,7 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 		"conversation", q.ConversationId,
 		"user", q.User.Id,
 		"format", format,
+		"client_schema", q.ResponseSchema != nil,
 		"steps", result.Steps,
 		"tool_calls", result.ToolCalls,
 		"incomplete", result.Incomplete,
@@ -138,6 +146,7 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 	return &model.Answer{
 		Text:       result.Answer,
 		Structured: result.Structured,
+		Json:       result.Json,
 		Incomplete: result.Incomplete,
 		Charts:     result.Charts,
 		Steps:      result.Steps,

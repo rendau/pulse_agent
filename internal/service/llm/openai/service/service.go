@@ -22,6 +22,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/mechta-market/pulse_agent/internal/constant"
+	"github.com/mechta-market/pulse_agent/internal/errs"
 	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
 )
 
@@ -101,6 +102,11 @@ func (s *Service) Complete(ctx context.Context, req *llmModel.Request) (*llmMode
 
 	resp, err := s.client.Responses.New(ctx, params)
 	if err != nil {
+		// 400 — запрос не принят (в т.ч. схема ответа от клиента не подходит под strict):
+		// ошибка клиента с объяснением провайдера, а не сбой сервиса
+		if apiErr, ok := errors.AsType[*openai.Error](err); ok && apiErr.StatusCode == http.StatusBadRequest {
+			return nil, fmt.Errorf("%w: openai: %s", errs.InvalidRequest, lo.CoalesceOrEmpty(apiErr.Message, err.Error()))
+		}
 		return nil, fmt.Errorf("openai responses.new: %w", err)
 	}
 

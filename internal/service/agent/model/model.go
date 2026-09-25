@@ -35,6 +35,9 @@ type Req struct {
 	Question string
 	Format   string
 	Charts   bool
+	// ResponseSchema — JSON Schema ответа от системы-клиента (RPC): ответ — JSON строго по ней
+	// (Result.Json); nil — формат Format
+	ResponseSchema map[string]any
 }
 
 // Result — итог разбора.
@@ -42,9 +45,12 @@ type Result struct {
 	// Answer — текст ответа; в формате json — собран из Structured
 	Answer string
 
-	// Structured — ответ по полям (формат json); nil — текстовый формат или модель не
-	// выдала разбираемый JSON
+	// Structured — ответ по полям схемы по умолчанию (формат json без своей схемы)
 	Structured *Structured
+
+	// Json — ответ в JSON (формат json или схема клиента), как его выдала модель; nil —
+	// текстовый формат или модель не выдала разбираемый JSON (оборванный ответ)
+	Json []byte
 
 	// Incomplete — почему разбор закончен досрочно (Incomplete*); пусто — модель
 	// ответила сама.

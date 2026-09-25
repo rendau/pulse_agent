@@ -33,21 +33,21 @@ type Totals struct {
 }
 
 type CaseResult struct {
-	Id         string         `json:"id"`
-	Question   string         `json:"question"`
-	Format     string         `json:"format,omitempty"`
-	Pass       bool           `json:"pass"`
-	Failures   []string       `json:"failures,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	Answer     string         `json:"answer,omitempty"`
-	Result     *dto.ResultRep `json:"result,omitempty"`
-	Incomplete string         `json:"incomplete,omitempty"`
-	DurationMs int64          `json:"duration_ms"`
-	Steps      int            `json:"steps"`
-	ToolCalls  int            `json:"tool_calls"`
-	Usage      dto.UsageRep   `json:"usage"`
-	Tools      []string       `json:"tools,omitempty"`
-	Charts     []dto.ChartRep `json:"charts,omitempty"`
+	Id         string          `json:"id"`
+	Question   string          `json:"question"`
+	Format     string          `json:"format,omitempty"`
+	Pass       bool            `json:"pass"`
+	Failures   []string        `json:"failures,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	Answer     string          `json:"answer,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Incomplete string          `json:"incomplete,omitempty"`
+	DurationMs int64           `json:"duration_ms"`
+	Steps      int             `json:"steps"`
+	ToolCalls  int             `json:"tool_calls"`
+	Usage      dto.UsageRep    `json:"usage"`
+	Tools      []string        `json:"tools,omitempty"`
+	Charts     []dto.ChartRep  `json:"charts,omitempty"`
 }
 
 func totals(cases []CaseResult) Totals {

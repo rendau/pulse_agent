@@ -58,6 +58,15 @@ var formatRules = map[string]string{
 		"  - unavailable_sources — источники из поля errors инструментов, которые не ответили.",
 }
 
+// clientSchemaRules — оформление, когда схему ответа задала система-клиент (RPC).
+const clientSchemaRules = "- Итог — JSON строго по схеме, которую задала система-клиент: смысл полей — в их названиях и description.\n" +
+	"  - Значения — только из инструментов; нет данных для поля — null (необязательные поля его допускают), не выдумывай.\n" +
+	"  - Время — RFC3339 с поясом, как пришло из инструментов.\n" +
+	"  - Числовые поля — числа в единицах, названных в поле или его описании (не названы — как в источнике: байты, секунды, доли); текстовые — по правилам выше, без разметки."
+
+// ResponseSchemaName — имя схемы системы-клиента у провайдера.
+const ResponseSchemaName = "client_answer"
+
 // chartRule — когда рисовать график (клиент принимает графики).
 const chartRule = "- Динамика за период или сравнение сервисов — приложи график через render_chart (временные ряды — ссылкой на query_metrics). Картинка уходит вместе с ответом: в тексте вывод и ключевые цифры, точки графика не перечисляй."
 
@@ -68,8 +77,9 @@ func FormatKnown(format string) bool {
 }
 
 // SystemPrompt — системный промпт: общие правила, instructions pulse, оформление под формат
-// (пустой — telegram) и правило графиков, если клиент их принимает.
-func SystemPrompt(pulseInstructions, format string, charts bool) string {
+// (пустой — telegram; clientSchema — схема системы-клиента) и правило графиков, если клиент
+// их принимает.
+func SystemPrompt(pulseInstructions, format string, clientSchema, charts bool) string {
 	prompt := systemPrompt
 	if pulseInstructions != "" {
 		prompt += pulseInstructionsHeader + pulseInstructions
@@ -78,6 +88,9 @@ func SystemPrompt(pulseInstructions, format string, charts bool) string {
 	rules, ok := formatRules[format]
 	if !ok {
 		rules = formatRules[FormatTelegram]
+	}
+	if clientSchema {
+		rules = clientSchemaRules
 	}
 	prompt += "\n\nОформление ответа:\n" + rules
 	if charts {

@@ -108,3 +108,19 @@ func TestSkipped(t *testing.T) {
 	assert.True(t, c.Skipped(time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)))
 	assert.False(t, (&Case{}).Skipped(time.Now()))
 }
+
+func TestEvaluateResult(t *testing.T) {
+	withResult := func(raw string) *dto.AskRep { return &dto.AskRep{Result: []byte(raw)} }
+
+	assert.Equal(t, []string{"нет result"}, evaluateResult(&dto.AskRep{}, false, nil))
+	assert.Equal(t, []string{"нет result"}, evaluateResult(withResult("null"), true, nil))
+
+	// схема по умолчанию
+	assert.Empty(t, evaluateResult(withResult(`{"summary":"s","status":"ok","severity":"none","facts":[{"text":"t"}]}`), false, nil))
+	assert.Contains(t, evaluateResult(withResult(`{"summary":"s","status":"broken","severity":"none","facts":[]}`), false, nil), `result.status "broken"`)
+
+	// своя схема: поля как аргументы
+	fields := map[string]string{"found": "true", "services": "~delivery", "problem": ""}
+	assert.Empty(t, evaluateResult(withResult(`{"found":true,"services":["delivery","mb-broker"],"problem":null}`), true, fields))
+	assert.NotEmpty(t, evaluateResult(withResult(`{"found":false,"services":[],"problem":null}`), true, fields))
+}

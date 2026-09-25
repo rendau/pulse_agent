@@ -109,6 +109,7 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request, client string) {
 		Text:           req.Question,
 		Format:         strings.TrimSpace(req.Format),
 		Charts:         req.Charts != dto.ChartsNone,
+		ResponseSchema: req.ResponseSchema,
 	})
 	if err != nil {
 		writeFail(w, r, client, err)

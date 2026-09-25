@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mechta-market/pulse_agent/internal/errs"
 	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
 	localConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
 	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
@@ -338,8 +339,8 @@ func TestRun_JsonFormat(t *testing.T) {
 }
 
 func TestSystemPrompt_Formats(t *testing.T) {
-	telegram := localConstant.SystemPrompt("instr", "", true)
-	plain := localConstant.SystemPrompt("instr", localConstant.FormatPlain, false)
+	telegram := localConstant.SystemPrompt("instr", "", false, true)
+	plain := localConstant.SystemPrompt("instr", localConstant.FormatPlain, false, false)
 
 	assert.Contains(t, telegram, "Markdown для Telegram")
 	assert.Contains(t, telegram, "render_chart")
@@ -350,4 +351,34 @@ func TestSystemPrompt_Formats(t *testing.T) {
 	prefix := telegram[:strings.Index(telegram, "Оформление ответа")]
 	assert.True(t, strings.HasPrefix(plain, prefix))
 	assert.Contains(t, prefix, "instr")
+}
+
+func TestRun_ClientSchema(t *testing.T) {
+	schema := map[string]any{"type": "object", "properties": map[string]any{
+		"order_status":   map[string]any{"type": "string", "description": "статус заказа"},
+		"failed_service": map[string]any{"type": "string"},
+	}, "required": []any{"order_status"}}
+	llm := &fakeLlm{steps: []*llmModel.Response{textStep(`{"order_status":"completed","failed_service":null}`)}}
+
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil).
+		Run(context.Background(), &agentModel.Req{Question: "что по заказу 41314079?", Format: localConstant.FormatJson, ResponseSchema: schema})
+	require.NoError(t, err)
+
+	req := llm.requests[0]
+	require.NotNil(t, req.Output)
+	assert.Equal(t, localConstant.ResponseSchemaName, req.Output.Name)
+	assert.Equal(t, false, req.Output.Schema["additionalProperties"], "схема приведена к strict")
+	assert.Contains(t, req.System, "по схеме, которую задала система-клиент")
+	assert.NotContains(t, req.System, "summary — вывод")
+
+	assert.JSONEq(t, `{"order_status":"completed","failed_service":null}`, string(res.Json))
+	assert.Nil(t, res.Structured, "поля схемы по умолчанию — только без своей схемы")
+	assert.Equal(t, `{"order_status":"completed","failed_service":null}`, res.Answer)
+
+	// неверная схема — ошибка клиента, модель не вызывается
+	llm = &fakeLlm{}
+	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil).
+		Run(context.Background(), &agentModel.Req{Question: "q", ResponseSchema: map[string]any{"type": "array"}})
+	require.ErrorIs(t, err, errs.InvalidRequest)
+	assert.Empty(t, llm.requests)
 }

@@ -56,6 +56,10 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
       провайдера). `json` — структурированный вывод по строгой схеме `constant/result.go`
       (`llm.Request.Output`): поля разбираются в `Result.Structured` (`structured.go`), `Answer`
       собирается из полей; не разобрался (оборванный ответ) — текст как есть, `Structured` nil.
+    - Своя схема системы (RPC, `Req.ResponseSchema`): `schema.go` приводит её к strict (все поля в
+      required, необязательные — nullable, `additionalProperties: false`, oneOf → anyOf) — клиент
+      пишет обычную JSON Schema; в промпте — блок `clientSchemaRules`; ответ — `Result.Json` как
+      есть. 400 провайдера (схема не принята) → `errs.InvalidRequest` → клиенту `400`.
     - Свой инструмент `render_chart` (`service/chart.go`, описание и схема — `constant/chart.go`),
       предлагается, только если клиент принимает графики (`Req.Charts`). Временные ряды —
       ссылкой `metrics` (service + metric_id) на ответ `query_metrics` этого разбора: точки не

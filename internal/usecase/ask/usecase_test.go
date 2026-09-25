@@ -107,3 +107,18 @@ func TestAsk_BusyConversation(t *testing.T) {
 	close(agent.release)
 	require.NoError(t, <-done)
 }
+
+func TestAsk_ResponseSchema(t *testing.T) {
+	agent := &fakeAgent{result: &agentModel.Result{Answer: `{"a":1}`, Json: []byte(`{"a":1}`)}}
+	uc := newUsecase(agent)
+	schema := map[string]any{"type": "object"}
+
+	ans, err := uc.Ask(context.Background(), &model.Question{Client: "sd", Text: "q", ResponseSchema: schema})
+	require.NoError(t, err)
+	assert.Equal(t, "json", agent.reqs[0].Format, "своя схема — формат json")
+	assert.Equal(t, schema, agent.reqs[0].ResponseSchema)
+	assert.JSONEq(t, `{"a":1}`, string(ans.Json))
+
+	_, err = uc.Ask(context.Background(), &model.Question{Client: "sd", Text: "q", Format: "plain", ResponseSchema: schema})
+	require.ErrorIs(t, err, errs.InvalidRequest)
+}

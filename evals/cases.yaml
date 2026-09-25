@@ -185,3 +185,41 @@ cases:
         - tool: query_logs
           args: {service: '', pattern: '~41314079'}
       tool_limits: {query_logs: 2}
+
+  # --- своя схема ответа (RPC: система задаёт поля) ---
+  - id: rpc-order-status
+    note: service-desk — по заказу нужны поля, а не текст
+    question: что по заказу 41314079?
+    skip_after: 2026-10-20
+    response_schema:
+      type: object
+      properties:
+        found: {type: boolean, description: нашлись ли следы заказа в логах}
+        last_status: {type: string, description: последний статус заказа из логов}
+        last_event_at: {type: string, description: время последнего события по заказу, RFC3339}
+        services: {type: array, items: {type: string}, description: сервисы, в логах которых есть заказ}
+        problem: {type: string, description: что пошло не так, если что-то пошло}
+      required: [found, services]
+    checks:
+      calls:
+        - tool: query_logs
+          args: {service: '', pattern: '~41314079'}
+      result_fields: {found: 'true', services: '~delivery|mb-broker', last_event_at: '~^2026-09-2'}
+
+  - id: rpc-service-state
+    note: разбор алертов — состояние сервиса числами
+    question: состояние caravan сейчас
+    response_schema:
+      type: object
+      properties:
+        status: {type: string, enum: [ok, degraded, down, unknown]}
+        pods_ready: {type: integer, description: готовых подов}
+        pods_total: {type: integer, description: всего подов}
+        memory_mb: {type: number, description: память в мегабайтах}
+        p95_latency_ms: {type: number, description: задержка p95 в миллисекундах}
+      required: [status, pods_ready, pods_total]
+    checks:
+      calls:
+        - tool: get_service_snapshot
+          args: {service: caravan}
+      result_fields: {status: '~^(ok|degraded|down|unknown)$', pods_total: '~^[1-9][0-9]*$', memory_mb: '~^[0-9.]+$'}

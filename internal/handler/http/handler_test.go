@@ -72,11 +72,7 @@ func TestAsk_JsonAndCharts(t *testing.T) {
 	at := time.Date(2026, 9, 25, 9, 58, 0, 0, time.UTC)
 	ask := &fakeAsk{answer: &askModel.Answer{
 		Text: "caravan деградировал",
-		Structured: &agentModel.Structured{
-			Summary: "caravan деградировал", Status: "degraded", Severity: "medium",
-			Services: []agentModel.StructuredService{{Name: "caravan", Status: "degraded", Note: "p95 650 мс"}},
-			Facts:    []agentModel.Fact{{Text: "p95 650 мс", Time: &at, Service: "caravan"}, {Text: "деплоев не было"}},
-		},
+		Json: []byte(`{"summary":"caravan деградировал","status":"degraded","facts":[{"text":"p95 650 мс","time":"2026-09-25T14:58:00+05:00"}],"next_steps":[]}`),
 		Charts: []agentModel.Chart{{Title: "p95", Png: []byte("PNG"), Spec: &chartModel.Spec{Type: "line", Unit: "seconds",
 			Series: []chartModel.Series{{Name: "caravan", Points: []chartModel.Point{{Time: at, Value: 0.65}}}}}}},
 		Trace: []agentModel.ToolTrace{{Name: "get_service_snapshot", Output: strings.Repeat("x", 5000)}},
@@ -93,12 +89,8 @@ func TestAsk_JsonAndCharts(t *testing.T) {
 	assert.True(t, q.Charts)
 
 	result := rep["result"].(map[string]any)
-	assert.Equal(t, "degraded", result["status"])
-	facts := result["facts"].([]any)
-	assert.Equal(t, "2026-09-25T14:58:00+05:00", facts[0].(map[string]any)["time"], "время — по Алматы")
-	assert.Nil(t, facts[1].(map[string]any)["time"])
-	assert.Nil(t, facts[1].(map[string]any)["service"])
-	assert.Equal(t, []any{}, result["next_steps"], "пустые списки — [], не null")
+	assert.Equal(t, "degraded", result["status"], "result — JSON агента как есть")
+	assert.Equal(t, []any{}, result["next_steps"])
 
 	chart := rep["charts"].([]any)[0].(map[string]any)
 	assert.Nil(t, chart["png"], "charts=data — без картинки")
@@ -114,6 +106,7 @@ func TestAsk_JsonAndCharts(t *testing.T) {
 	// png — только картинка; none — агент без графиков; без trace — хода разбора нет
 	rec, rep = serve(t, ask, PathAsk, "k-bot", `{"question":"q","charts":"png"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
+	ask.answer.Json = nil
 	chart = rep["charts"].([]any)[0].(map[string]any)
 	assert.Equal(t, "UE5H", chart["png"])
 	assert.Nil(t, chart["data"])
@@ -121,6 +114,23 @@ func TestAsk_JsonAndCharts(t *testing.T) {
 
 	_, _ = serve(t, ask, PathAsk, "k-bot", `{"question":"q","charts":"none"}`)
 	assert.False(t, ask.questions[2].Charts)
+}
+
+func TestAsk_ResponseSchema(t *testing.T) {
+	ask := &fakeAsk{answer: &askModel.Answer{Text: `{"order_status":"paid"}`, Json: []byte(`{"order_status":"paid"}`)}}
+
+	rec, rep := serve(t, ask, PathAsk, "k-sd", `{"question":"что по заказу 1?",
+		"response_schema":{"type":"object","properties":{"order_status":{"type":"string"}},"required":["order_status"]}}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, map[string]any{"order_status": "paid"}, rep["result"])
+	schema := ask.questions[0].ResponseSchema
+	require.NotNil(t, schema)
+	assert.Equal(t, "object", schema["type"])
+
+	// текстовый ответ — result null
+	ask.answer = &askModel.Answer{Text: "ok"}
+	_, rep = serve(t, ask, PathAsk, "k-sd", `{"question":"q"}`)
+	assert.Nil(t, rep["result"])
 }
 
 func TestAsk_Errors(t *testing.T) {

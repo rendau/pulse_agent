@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -52,12 +53,22 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 		return nil, fmt.Errorf("pulse.Catalog: %w", err)
 	}
 
+	var clientSchema map[string]any
+	if req.ResponseSchema != nil {
+		if clientSchema, err = strictSchema(req.ResponseSchema); err != nil {
+			return nil, err
+		}
+	}
+
 	llmReq := &llmModel.Request{
-		System:   localConstant.SystemPrompt(catalog.Instructions, req.Format, s.chart != nil && req.Charts),
+		System:   localConstant.SystemPrompt(catalog.Instructions, req.Format, clientSchema != nil, s.chart != nil && req.Charts),
 		Messages: buildMessages(req, started),
 		Tools:    lo.Map(catalog.Tools, encodeTool),
 	}
-	if req.Format == localConstant.FormatJson {
+	switch {
+	case clientSchema != nil:
+		llmReq.Output = &llmModel.OutputSchema{Name: localConstant.ResponseSchemaName, Schema: clientSchema}
+	case req.Format == localConstant.FormatJson:
 		llmReq.Output = &llmModel.OutputSchema{Name: localConstant.ResultSchemaName, Schema: localConstant.ResultSchema}
 	}
 	if s.chart != nil && req.Charts {
@@ -88,7 +99,7 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 				result.Incomplete = agentModel.IncompleteOutput
 			}
 			if llmReq.Output != nil {
-				s.structure(result)
+				s.structure(result, clientSchema == nil)
 			}
 			return result, nil
 		}
@@ -123,14 +134,26 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 	}
 }
 
-// structure разбирает ответ в формате json; не разобрался (ответ оборван и т.п.) — остаётся
-// текст как есть, без полей.
-func (s *Service) structure(result *agentModel.Result) {
+// structure разбирает ответ в JSON; не разобрался (ответ оборван и т.п.) — остаётся текст как
+// есть, без полей. Схема по умолчанию (byDefault) — ещё и поля с текстом из них; схема клиента —
+// JSON как есть, текст ответа — тот же JSON.
+func (s *Service) structure(result *agentModel.Result, byDefault bool) {
+	raw := []byte(strings.TrimSpace(result.Answer))
+	if !json.Valid(raw) {
+		slog.Warn("agent: answer is not valid JSON", "incomplete", result.Incomplete)
+		return
+	}
+	if !byDefault {
+		result.Json = raw
+		return
+	}
+
 	structured, err := decodeStructured(result.Answer)
 	if err != nil {
 		slog.Warn("agent: structured answer", "error", err, "incomplete", result.Incomplete)
 		return
 	}
+	result.Json = raw
 	result.Structured = structured
 	result.Answer = renderStructured(structured)
 }

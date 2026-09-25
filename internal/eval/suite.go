@@ -29,7 +29,9 @@ type Case struct {
 	Before   []string `yaml:"before"`
 	// Format — формат ответа (telegram по умолчанию); json — проверяется и ответ по полям
 	Format string `yaml:"format"`
-	Checks Checks `yaml:"checks"`
+	// ResponseSchema — своя схема ответа (RPC); проверки полей — checks.result_fields
+	ResponseSchema map[string]any `yaml:"response_schema"`
+	Checks         Checks         `yaml:"checks"`
 	// SkipAfter — дата, после которой вопрос устарел (данные ушли из хранения логов)
 	SkipAfter string `yaml:"skip_after"`
 	Note      string `yaml:"note"`
@@ -58,6 +60,8 @@ type Checks struct {
 	MaxInputTokens int64         `yaml:"max_input_tokens"`
 	// AllowIncomplete — разбор может закончиться досрочно (лимит времени/вызовов)
 	AllowIncomplete bool `yaml:"allow_incomplete"`
+	// ResultFields — поля ответа по своей схеме (как args в calls)
+	ResultFields map[string]string `yaml:"result_fields"`
 }
 
 // CallCheck — вызов инструмента. Args — подмножество аргументов: значение сравнивается

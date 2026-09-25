@@ -3,6 +3,7 @@ package dto
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ type AskReq struct {
 	User  UserReq `json:"user"`
 	// Format — telegram (по умолчанию) | markdown | plain | json (ответ по полям — result)
 	Format string `json:"format,omitempty"`
+	// ResponseSchema — JSON Schema ответа от системы (RPC): result — строго по ней;
+	// задана — формат json
+	ResponseSchema map[string]any `json:"response_schema,omitempty"`
 	// Charts — all (по умолчанию) | png | data | none
 	Charts string `json:"charts,omitempty"`
 	// Trace — ход разбора в ответе (вызовы инструментов); TraceOutputLimit — байт ответа
@@ -55,8 +59,9 @@ type UserReq struct {
 type AskRep struct {
 	// Answer — текст ответа; при format=json — собран из result
 	Answer string `json:"answer"`
-	// Result — ответ по полям (format=json); null — другой формат или модель не выдала JSON
-	Result *ResultRep `json:"result"`
+	// Result — ответ в JSON: по response_schema клиента, иначе при format=json — по схеме по
+	// умолчанию (ResultRep); null — текстовый формат или модель не выдала JSON
+	Result json.RawMessage `json:"result"`
 	// Incomplete — почему разбор закончен досрочно: timeout | tool_calls | output; пусто — полный
 	Incomplete string          `json:"incomplete,omitempty"`
 	Charts     []ChartRep      `json:"charts"`
@@ -67,7 +72,7 @@ type AskRep struct {
 	Trace      []*ToolTraceRep `json:"trace,omitempty"`
 }
 
-// ResultRep — ответ по полям: системе не нужно разбирать текст.
+// ResultRep — ответ по полям схемы по умолчанию (format=json без response_schema).
 type ResultRep struct {
 	Summary            string       `json:"summary"`
 	Status             string       `json:"status"`
@@ -153,7 +158,7 @@ type ErrorRep struct {
 func EncodeAskRep(a *askModel.Answer, req *AskReq, loc *time.Location) *AskRep {
 	rep := &AskRep{
 		Answer:     a.Text,
-		Result:     encodeResult(a.Structured, loc),
+		Result:     a.Json,
 		Incomplete: a.Incomplete,
 		Charts:     lo.Map(a.Charts, func(c agentModel.Chart, _ int) ChartRep { return encodeChart(c, req.Charts, loc) }),
 		Steps:      a.Steps,
@@ -176,29 +181,6 @@ func EncodeAskRep(a *askModel.Answer, req *AskReq, loc *time.Location) *AskRep {
 		})
 	}
 	return rep
-}
-
-func encodeResult(s *agentModel.Structured, loc *time.Location) *ResultRep {
-	if s == nil {
-		return nil
-	}
-	return &ResultRep{
-		Summary:  s.Summary,
-		Status:   s.Status,
-		Severity: s.Severity,
-		Services: lo.Map(s.Services, func(v agentModel.StructuredService, _ int) ServiceRep {
-			return ServiceRep{Name: v.Name, Status: v.Status, Note: v.Note}
-		}),
-		Facts: lo.Map(s.Facts, func(f agentModel.Fact, _ int) FactRep {
-			fact := FactRep{Text: f.Text, Service: lo.EmptyableToPtr(f.Service)}
-			if f.Time != nil {
-				fact.Time = new(f.Time.In(loc))
-			}
-			return fact
-		}),
-		NextSteps:          lo.Ternary(s.NextSteps == nil, []string{}, s.NextSteps),
-		UnavailableSources: lo.Ternary(s.UnavailableSources == nil, []string{}, s.UnavailableSources),
-	}
 }
 
 func encodeChart(c agentModel.Chart, mode string, loc *time.Location) ChartRep {

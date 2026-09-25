@@ -55,7 +55,7 @@ func (r *Runner) runCase(ctx context.Context, conversation string, c Case) CaseR
 
 	rep, err := r.ask(ctx, &dto.AskReq{
 		Question: c.Question, ConversationId: conversation, User: user, Format: c.Format,
-		Trace: true, TraceOutputLimit: 300,
+		ResponseSchema: c.ResponseSchema, Trace: true, TraceOutputLimit: 300,
 	})
 	if err != nil {
 		result.Error = err.Error()
@@ -63,8 +63,8 @@ func (r *Runner) runCase(ctx context.Context, conversation string, c Case) CaseR
 	}
 
 	result.Failures = Evaluate(c.Checks, rep)
-	if c.Format == "json" {
-		result.Failures = append(result.Failures, evaluateResult(rep)...)
+	if c.Format == "json" || c.ResponseSchema != nil {
+		result.Failures = append(result.Failures, evaluateResult(rep, c.ResponseSchema != nil, c.Checks.ResultFields)...)
 	}
 	result.Pass = len(result.Failures) == 0
 	result.Answer = rep.Answer

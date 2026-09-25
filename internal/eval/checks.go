@@ -79,11 +79,22 @@ func Evaluate(c Checks, rep *dto.AskRep) []string {
 	return failures
 }
 
-// evaluateResult — ответ по полям (format=json): есть, и значения из допустимых.
-func evaluateResult(rep *dto.AskRep) []string {
-	r := rep.Result
-	if r == nil {
-		return []string{"нет result при format=json"}
+// evaluateResult — ответ по полям: есть; схема по умолчанию — значения из допустимых; своя схема
+// (fields) — поля верхнего уровня как аргументы в calls ("" — null/нет, "~регэксп").
+func evaluateResult(rep *dto.AskRep, clientSchema bool, fields map[string]string) []string {
+	if len(rep.Result) == 0 || string(rep.Result) == "null" {
+		return []string{"нет result"}
+	}
+	if clientSchema {
+		if !argsMatch(string(rep.Result), fields) {
+			return []string{fmt.Sprintf("result %s не подходит под %v", rep.Result, fields)}
+		}
+		return nil
+	}
+
+	var r dto.ResultRep
+	if err := json.Unmarshal(rep.Result, &r); err != nil {
+		return []string{"result не по схеме по умолчанию: " + err.Error()}
 	}
 	var failures []string
 	if strings.TrimSpace(r.Summary) == "" {
