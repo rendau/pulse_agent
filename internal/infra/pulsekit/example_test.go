@@ -212,8 +212,9 @@ func ExampleKit_Activity() {
 		}},
 	}, Build{})
 
-	// в сервисе: SELECT status, count(*), count(*) FILTER (WHERE updated_at < now() - порог статуса),
-	// max(now() - updated_at) FROM orders WHERE status <> 'delivered' GROUP BY status
+	// в сервисе: SELECT status, count(*), count(*) FILTER (WHERE status_changed_at < now() - порог статуса),
+	// max(now() - status_changed_at) FROM orders WHERE status <> 'delivered' GROUP BY status —
+	// время входа в статус, не создания; кто ждёт намеренно — не в stuck и не в oldest
 	countOrders := func(_ context.Context, stuckAfter map[string]time.Duration) (map[string]StatusCount, error) {
 		_ = stuckAfter[string(OrderPaid)] // 2h — из Domain
 		return map[string]StatusCount{
