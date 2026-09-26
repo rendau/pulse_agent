@@ -404,3 +404,35 @@ func TestProblemOk(t *testing.T) {
 	assert.Equal(t, "ok", status.Status)
 	assert.Equal(t, "вызовов не было, сеть до хоста есть", status.Dependencies[0].Message, "пометка у ok")
 }
+
+// Отчёт по объектам в ручке состояния: пороги застревания — из Domain, статусы — в порядке Domain,
+// застрявших не меньше порога — объект и сервис degraded; объект не из Domain — в Problems.
+func TestActivity(t *testing.T) {
+	k := newKit()
+	var gotThresholds map[string]time.Duration
+	k.Activity("заказ", 10, func(_ context.Context, stuckAfter map[string]time.Duration) (EntityCounts, error) {
+		gotThresholds = stuckAfter
+		return EntityCounts{
+			Statuses: map[string]StatusCount{
+				"shipped": {Count: 900},
+				"paid":    {Count: 42, Stuck: 12, Oldest: 3 * time.Hour},
+				"draft":   {Count: 3},
+			},
+			Created: new(120),
+		}, nil
+	})
+	k.Activity("рейс", 0, func(context.Context, map[string]time.Duration) (EntityCounts, error) { return EntityCounts{}, nil })
+	require.Len(t, k.Problems(), 1, "рейса нет в Domain")
+
+	k.checkAll(context.Background())
+	status := k.Status()
+	assert.Equal(t, map[string]time.Duration{"paid": 2 * time.Hour}, gotThresholds)
+	require.Len(t, status.Entities, 1)
+	e := status.Entities[0]
+	assert.Equal(t, "degraded", e.Status, "12 застрявших при пороге 10")
+	assert.Equal(t, "degraded", status.Status)
+	assert.Equal(t, []string{"paid", "shipped", "draft"}, lo.Map(e.Statuses, func(s EntityStatusRep, _ int) string { return s.Name }), "порядок Domain, необъявленные — в конце")
+	assert.Equal(t, int64(3*3600), e.Statuses[0].OldestS)
+	assert.Equal(t, 120, *e.Created1h)
+	assert.Nil(t, e.Finished1h)
+}

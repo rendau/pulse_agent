@@ -111,6 +111,7 @@ type Kit struct {
 	mu            sync.RWMutex
 	deps          []*dependency
 	gauges        []*gauge
+	activities    []*activity
 	metrics       []Metric
 	errorPatterns []errorPattern
 	endpoints     []endpointDecl
@@ -383,6 +384,7 @@ func (k *Kit) checkAll(ctx context.Context) {
 	k.mu.RLock()
 	deps := append([]*dependency{}, k.deps...)
 	gauges := append([]*gauge{}, k.gauges...)
+	activities := append([]*activity{}, k.activities...)
 	k.mu.RUnlock()
 
 	type result struct {
@@ -391,6 +393,7 @@ func (k *Kit) checkAll(ctx context.Context) {
 	}
 	results := make([]result, len(deps))
 	readings := make([]gaugeReading, len(gauges))
+	reports := make([]*EntityRep, len(activities))
 	var wg sync.WaitGroup
 	for i, d := range deps {
 		wg.Go(func() {
@@ -419,6 +422,13 @@ func (k *Kit) checkAll(ctx context.Context) {
 			readings[i] = g.read(readCtx)
 		})
 	}
+	for i, a := range activities {
+		wg.Go(func() {
+			readCtx, cancel := context.WithTimeout(ctx, k.conf.CheckTimeout)
+			defer cancel()
+			reports[i] = a.read(readCtx)
+		})
+	}
 	wg.Wait()
 	if ctx.Err() != nil {
 		return // остановка сервиса: отменённые проверки — не состояние зависимостей
@@ -431,6 +441,9 @@ func (k *Kit) checkAll(ctx context.Context) {
 	}
 	for i, g := range gauges {
 		g.last = readings[i]
+	}
+	for i, a := range activities {
+		a.last = reports[i]
 	}
 	k.checkedAt = time.Now()
 }
@@ -479,7 +492,7 @@ func DescribeText(text string) string {
 }
 
 // Status — ответ ручки состояния: последний результат фоновых проверок. down — упала
-// критичная зависимость; degraded — что-то ещё не ok (зависимость или показатель).
+// критичная зависимость; degraded — что-то ещё не ok (зависимость, показатель, объект).
 func (k *Kit) Status() StatusRep {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -511,6 +524,13 @@ func (k *Kit) Status() StatusRep {
 		rep.Gauges = append(rep.Gauges, GaugeRep{Id: g.id, Title: g.title, Value: g.last.value, Unit: g.unit, Status: g.last.status})
 		worse(g.last.status, false)
 	}
+	for _, a := range k.activities {
+		if a.last == nil {
+			continue // ещё не прочитан или чтение не удалось
+		}
+		rep.Entities = append(rep.Entities, *a.last)
+		worse(a.last.Status, false)
+	}
 	return rep
 }
 
@@ -520,6 +540,7 @@ type StatusRep struct {
 	CheckedAt    string                `json:"checked_at,omitempty"`
 	Dependencies []DependencyStatusRep `json:"dependencies"`
 	Gauges       []GaugeRep            `json:"gauges,omitempty"`
+	Entities     []EntityRep           `json:"entities,omitempty"`
 }
 
 type DependencyStatusRep struct {

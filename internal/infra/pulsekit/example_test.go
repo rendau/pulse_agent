@@ -198,3 +198,36 @@ func ExampleDomain() {
 	// Output:
 	// 0
 }
+
+// Отчёт по объектам в ручке состояния: сколько заказов в каждом статусе и сколько застряло.
+// Порог застревания берётся из Domain (StuckAfter) — здесь только запрос к своей БД.
+func ExampleKit_Activity() {
+	kit := New(Config{}, Service{
+		Name: "orders", Title: "Заказы", Description: "Принимает заказы", OwnerTeam: "orders", Criticality: "high",
+		Domain: &Domain{Entities: []Entity{
+			{Name: "заказ", Statuses: []EntityStatus{
+				{Name: string(OrderPaid), Meaning: "оплачен, ждёт сборки", StuckAfter: 2 * time.Hour},
+				{Name: string(OrderShipped), Meaning: "отгружен"},
+			}},
+		}},
+	}, Build{})
+
+	// в сервисе: SELECT status, count(*), count(*) FILTER (WHERE updated_at < now() - порог статуса),
+	// max(now() - updated_at) FROM orders WHERE status <> 'delivered' GROUP BY status
+	countOrders := func(_ context.Context, stuckAfter map[string]time.Duration) (map[string]StatusCount, error) {
+		_ = stuckAfter[string(OrderPaid)] // 2h — из Domain
+		return map[string]StatusCount{
+			string(OrderPaid):    {Count: 42, Stuck: 3, Oldest: 3 * time.Hour},
+			string(OrderShipped): {Count: 900},
+		}, nil
+	}
+	// 10 и больше застрявших — сервис degraded; 0 — только показывать
+	kit.Activity("заказ", 10, func(ctx context.Context, stuckAfter map[string]time.Duration) (EntityCounts, error) {
+		statuses, err := countOrders(ctx, stuckAfter)
+		return EntityCounts{Statuses: statuses}, err
+	})
+
+	fmt.Println(len(kit.Problems()))
+	// Output:
+	// 0
+}
