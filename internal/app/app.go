@@ -109,6 +109,9 @@ func (a *App) Init() {
 		errCheck(fmt.Errorf("unknown LLM_PROVIDER %q", config.Conf.LlmProvider), "llm")
 	}
 	slog.Info("llm", "provider", llmProvider.Name(), "model", config.Conf.LlmModel, "reasoning_effort", config.Conf.LlmReasoningEffort)
+	// платный API: здоровье — по настоящим вызовам (кончились деньги — Ping этого не видит)
+	llmCalls := pulsekit.NewPassive(15 * time.Minute)
+	llmProvider = llm.Observed(llmProvider, llmCalls.Observe)
 
 	// pulse (MCP)
 	a.pulse = servicePulseServiceP.New(
@@ -233,8 +236,13 @@ func (a *App) Init() {
 		a.pulsekit.Depend("pulse", "http", pulsekit.Host(config.Conf.PulseMcpUrl), true, func(ctx context.Context) error {
 			_, err := a.pulse.Catalog(ctx)
 			return err
-		}).Affects("ответы на вопросы")
-		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, llmProvider.Ping).Affects("ответы на вопросы")
+		}).Affects("ответы на вопросы и разборы уведомлений")
+		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, func(ctx context.Context) error {
+			if !llmCalls.Idle() {
+				return llmCalls.Check(ctx)
+			}
+			return llmProvider.Ping(ctx)
+		}).Affects("ответы на вопросы и разборы уведомлений")
 		if a.pgpool != nil {
 			a.pulsekit.Depend("journal_pg", "postgres", pulsekit.Host(config.Conf.PgDsn), false, a.pgpool.Ping).Affects("журнал вопросов")
 		}
