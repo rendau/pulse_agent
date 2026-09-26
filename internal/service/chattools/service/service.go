@@ -33,6 +33,13 @@ const (
 // mutedShown — сколько последних приглушённых уведомлений показывать модели.
 const mutedShown = 10
 
+// kindEnum, kindDescription — виды уведомлений для подписок и приглушений.
+var (
+	kindEnum        = append([]any{""}, lo.ToAnySlice(notifyModel.Kinds)...)
+	kindDescription = "alert — алерты, deploy — проверки после выкатки, logs — всплеск ошибок в логах, self — сервис сам " +
+		"сообщает о проблеме; пусто — любые"
+)
+
 var defs = []llmModel.ToolDef{
 	{
 		Name: ToolNotesSave,
@@ -54,7 +61,7 @@ var defs = []llmModel.ToolDef{
 			"type": "object",
 			"properties": map[string]any{
 				"service":      map[string]any{"type": "string", "description": "точное имя сервиса каталога (resolve_service); пусто — любой"},
-				"kind":         map[string]any{"type": "string", "enum": []any{"", notifyModel.KindAlert, notifyModel.KindDeploy}, "description": "alert — алерты, deploy — проверки после выкатки; пусто — любые"},
+				"kind":         map[string]any{"type": "string", "enum": kindEnum, "description": kindDescription},
 				"min_severity": map[string]any{"type": "string", "enum": []any{"", "info", "warning", "critical"}, "description": "не ниже этой важности; пусто — любая"},
 				"note":         map[string]any{"type": "string", "description": "зачем подписались, словами участника"},
 			},
@@ -79,7 +86,7 @@ var defs = []llmModel.ToolDef{
 			"type": "object",
 			"properties": map[string]any{
 				"service":  map[string]any{"type": "string", "description": "точное имя сервиса каталога (resolve_service); пусто — любой"},
-				"kind":     map[string]any{"type": "string", "enum": []any{"", notifyModel.KindAlert, notifyModel.KindDeploy}, "description": "alert — алерты, deploy — проверки после выкатки; пусто — любые"},
+				"kind":     map[string]any{"type": "string", "enum": kindEnum, "description": kindDescription},
 				"key":      map[string]any{"type": "string", "description": "имя алерта (alertname), если только его; иначе пусто"},
 				"duration": map[string]any{"type": "string", "description": "на сколько: 30m, 2h, 1d, 7d; пусто — навсегда (до отмены)"},
 				"note":     map[string]any{"type": "string", "description": "почему приглушили, словами участника"},

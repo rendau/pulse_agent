@@ -91,6 +91,8 @@ func signalRef(s *notifyModel.Signal) string {
 	case notifyModel.KindDeploy:
 		ref := firstString(details, "commit", "image_digest")
 		return ref[:min(len(ref), 7)]
+	case notifyModel.KindSelf:
+		return firstString(details, "status")
 	}
 	return ""
 }

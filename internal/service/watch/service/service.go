@@ -1,7 +1,8 @@
 // Package service — наблюдатель: раз в Interval берёт у pulse изменения по кластеру
-// (get_timeline scope=cluster), заводит сигналы (выкатка — один раз, алерт сервиса — не чаще
-// AlertRepeat) и разбирает созревшие: выкатку — через DeployDelay, только если снапшот сервиса
-// не healthy; алерт — сразу. Разбор — агент со схемой ответа (сообщать ли и что); сверх
+// (get_timeline scope=cluster), раз в ClusterInterval — здоровье кластера (get_cluster_health:
+// всплеск ошибок в логах против обычного уровня сервиса, самоотчёты не ok), заводит сигналы
+// (выкатка — один раз, остальное по сервису — не чаще AlertRepeat) и разбирает созревшие:
+// выкатку — через DeployDelay, только если снапшот сервиса не healthy; остальное — сразу. Разбор — агент со схемой ответа (сообщать ли и что); сверх
 // MaxRunsPerHour разборов или после неудачных попыток — уведомление без разбора.
 package service
 
@@ -51,11 +52,16 @@ func init() {
 }
 
 type Config struct {
-	Interval       time.Duration // опрос pulse
-	DeployDelay    time.Duration // через сколько после выкатки её проверять
-	AlertRepeat    time.Duration // один алерт сервиса — не чаще
-	MaxRunsPerHour int           // разборов агентом в час (дальше — без разбора)
-	Keep           time.Duration // срок хранения уведомлений
+	Interval    time.Duration // опрос ленты изменений pulse
+	DeployDelay time.Duration // через сколько после выкатки её проверять
+	AlertRepeat time.Duration // один сигнал сервиса (алерт, логи, самоотчёт) — не чаще
+	// ClusterInterval — опрос здоровья кластера (логи, самоотчёты); 0 — не опрашивать
+	ClusterInterval time.Duration
+	// всплеск ошибок в логах: за 15 мин не меньше LogErrorsMin и в LogErrorsFactor раз выше обычного
+	LogErrorsMin    int
+	LogErrorsFactor int
+	MaxRunsPerHour  int           // разборов агентом в час (дальше — без разбора)
+	Keep            time.Duration // срок хранения уведомлений
 }
 
 type Service struct {
@@ -66,6 +72,9 @@ type Service struct {
 	journal journalI
 	now     func() time.Time
 	wg      sync.WaitGroup
+
+	logs          logBaseline // обычный уровень ошибок сервисов (только из цикла наблюдателя)
+	clusterPolled time.Time
 }
 
 func New(cfg Config, pulse pulseI, agent agentI, notify notifyI, journal journalI) *Service {
@@ -105,6 +114,12 @@ func (s *Service) tick(ctx context.Context) {
 	if err := s.collect(ctx); err != nil && ctx.Err() == nil {
 		slog.Warn("watch: collect", "error", err)
 	}
+	if s.dueCluster(s.now()) {
+		s.clusterPolled = s.now()
+		if err := s.collectCluster(ctx); err != nil && ctx.Err() == nil {
+			slog.Warn("watch: collect cluster", "error", err)
+		}
+	}
 
 	due, err := s.notify.Due(ctx, perTick)
 	if err != nil {
@@ -136,7 +151,7 @@ func (s *Service) collect(ctx context.Context) error {
 			return fmt.Errorf("notify.Observe: %w", err)
 		}
 		if added {
-			slog.Info("watch: signal", "key", signal.Key, "due_at", signal.DueAt)
+			slogSignal(signal)
 		}
 	}
 	return nil
@@ -164,6 +179,10 @@ func (s *Service) handle(ctx context.Context, signal *notifyModel.Signal) error 
 		}
 		question = fmt.Sprintf(deployQuestion, signal.Service, signal.Summary, signal.At.UTC().Format(time.RFC3339),
 			s.now().Sub(signal.At).Round(time.Minute), snap.Health, lo.CoalesceOrEmpty(strings.Join(snap.SummaryHints, "; "), "нет"))
+	case notifyModel.KindLogs:
+		question = fmt.Sprintf(logsQuestion, signal.Service, signal.Summary, string(signal.Details))
+	case notifyModel.KindSelf:
+		question = fmt.Sprintf(selfQuestion, signal.Service, signal.Summary, string(signal.Details))
 	default:
 		question = fmt.Sprintf(alertQuestion, signal.Summary, string(signal.Details))
 	}
@@ -254,13 +273,17 @@ func (s *Service) failed(ctx context.Context, signal *notifyModel.Signal, cause 
 func (s *Service) notifyRaw(ctx context.Context, signal *notifyModel.Signal, why string) error {
 	n := &notifyModel.Notification{
 		Kind: signal.Kind, Service: signal.Service, Key: signalRef(signal),
-		Severity: lo.Ternary(signal.Kind == notifyModel.KindAlert, "warning", "info"),
+		Severity: lo.Ternary(signal.Kind == notifyModel.KindDeploy, "info", "warning"),
 		Title:    signal.Summary, Text: signal.Summary + "\n\n_" + why + "_", SignalKey: signal.Key,
 	}
 	if err := s.notify.Notify(ctx, n); err != nil {
 		return fmt.Errorf("notify.Notify: %w", err)
 	}
 	return s.finish(ctx, signal, notifyModel.OutcomeRaw, &n.Id)
+}
+
+func slogSignal(signal *notifyModel.Signal) {
+	slog.Info("watch: signal", "key", signal.Key, "due_at", signal.DueAt)
 }
 
 func (s *Service) finish(ctx context.Context, signal *notifyModel.Signal, outcome string, notificationId *int64) error {

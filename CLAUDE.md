@@ -127,7 +127,11 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     итоговый ответ и подписи графиков. В журнал и историю беседы — то, что видела модель
     (`Result.ModelAnswer`, вопрос через `Mask`); клиенты токенов не видят (кроме `trace`).
   - `watch` — наблюдатель (`WATCH_ENABLED`, нужен `PG_DSN`): раз в `WATCH_INTERVAL` — `get_timeline`
-    scope=cluster (окно 30m) → сигналы `deploy`/`alert_firing` (алерты severity none — нет). Выкатка
+    scope=cluster (окно 30m) → сигналы `deploy`/`alert_firing` (алерты severity none — нет); раз в
+    `WATCH_CLUSTER_INTERVAL` (5m) — `get_cluster_health` (окно 15m): `logs` — всплеск ошибок сервиса
+    (не меньше `WATCH_LOG_ERRORS_MIN` и в `WATCH_LOG_ERRORS_FACTOR` раз выше медианы 12 прошлых опросов;
+    обычный уровень — в памяти, первые 3 опроса после старта — без сигналов), `self` — самоотчёт не ok
+    (`self_reported`). Повтор одного сигнала сервиса — не чаще `WATCH_ALERT_REPEAT`. Выкатка
     через `WATCH_DEPLOY_DELAY`: сменилась следующей — `superseded`; снапшот healthy — `healthy` (без
     модели); иначе разбор. Алерт — разбор сразу. Разбор — `agent.Run` со схемой `verdictSchema`
     (notify, severity, title, text); notify=false — `quiet`. Сверх `WATCH_MAX_RUNS_PER_HOUR` разборов
@@ -292,7 +296,8 @@ domain service → repo
   пусто — в памяти), `JOURNAL_RETENTION_DAYS` (90), `JOURNAL_SIZE` (500, только в памяти). Персональные данные:
   `PII_TOKEN_KEY` (секрет, ≥32 случайных символа; пусто — токены меняются после рестарта),
   `PII_PHONE_COUNTRY_CODE` (7). Наблюдатель: `WATCH_ENABLED` (true), `WATCH_INTERVAL` (1m),
-  `WATCH_DEPLOY_DELAY` (15m), `WATCH_ALERT_REPEAT` (6h), `WATCH_MAX_RUNS_PER_HOUR` (20).
+  `WATCH_DEPLOY_DELAY` (15m), `WATCH_ALERT_REPEAT` (6h), `WATCH_MAX_RUNS_PER_HOUR` (20),
+  `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:

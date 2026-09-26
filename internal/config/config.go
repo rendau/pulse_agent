@@ -68,8 +68,13 @@ var Conf = struct {
 	WatchInterval time.Duration `env:"WATCH_INTERVAL" envDefault:"1m"`
 	// выкатку проверяем через столько после неё (и только если снапшот сервиса не healthy)
 	WatchDeployDelay time.Duration `env:"WATCH_DEPLOY_DELAY" envDefault:"15m"`
-	// один и тот же алерт сервиса — не чаще
+	// один и тот же сигнал сервиса (алерт, всплеск ошибок, самоотчёт) — не чаще
 	WatchAlertRepeat time.Duration `env:"WATCH_ALERT_REPEAT" envDefault:"6h"`
+	// здоровье кластера (get_cluster_health): всплеск ошибок в логах, самоотчёты сервисов
+	WatchClusterInterval time.Duration `env:"WATCH_CLUSTER_INTERVAL" envDefault:"5m"`
+	// всплеск ошибок в логах: за 15 мин не меньше MIN и в FACTOR раз выше обычного уровня сервиса
+	WatchLogErrorsMin    int `env:"WATCH_LOG_ERRORS_MIN" envDefault:"50"`
+	WatchLogErrorsFactor int `env:"WATCH_LOG_ERRORS_FACTOR" envDefault:"5"`
 	// разборов агентом в час; сверх — уведомление без разбора (сигнал как есть)
 	WatchMaxRunsPerHour int `env:"WATCH_MAX_RUNS_PER_HOUR" envDefault:"20"`
 

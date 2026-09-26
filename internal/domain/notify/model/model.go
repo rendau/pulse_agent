@@ -1,16 +1,24 @@
 package model
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // виды сигналов и уведомлений
 const (
 	KindAlert  = "alert"  // сработал алерт
 	KindDeploy = "deploy" // проверка после выкатки
+	KindLogs   = "logs"   // всплеск ошибок в логах сервиса
+	KindSelf   = "self"   // сервис сам сообщает о проблеме (манифест)
 )
+
+// Kinds — все виды (подписки и приглушения).
+var Kinds = []string{KindAlert, KindDeploy, KindLogs, KindSelf}
 
 // KindKnown — вид, который можно приглушить (пусто — любой).
 func KindKnown(kind string) bool {
-	return kind == "" || kind == KindAlert || kind == KindDeploy
+	return kind == "" || slices.Contains(Kinds, kind)
 }
 
 // статусы сигнала

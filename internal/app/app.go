@@ -193,11 +193,14 @@ func (a *App) Init() {
 		notifyUsecase = usecaseNotifyP.New(chatService, notifyService)
 		if config.Conf.WatchEnabled {
 			a.watch = serviceWatchServiceP.New(serviceWatchServiceP.Config{
-				Interval:       config.Conf.WatchInterval,
-				DeployDelay:    config.Conf.WatchDeployDelay,
-				AlertRepeat:    config.Conf.WatchAlertRepeat,
-				MaxRunsPerHour: config.Conf.WatchMaxRunsPerHour,
-				Keep:           journalKeep,
+				Interval:        config.Conf.WatchInterval,
+				DeployDelay:     config.Conf.WatchDeployDelay,
+				AlertRepeat:     config.Conf.WatchAlertRepeat,
+				ClusterInterval: config.Conf.WatchClusterInterval,
+				LogErrorsMin:    config.Conf.WatchLogErrorsMin,
+				LogErrorsFactor: config.Conf.WatchLogErrorsFactor,
+				MaxRunsPerHour:  config.Conf.WatchMaxRunsPerHour,
+				Keep:            journalKeep,
 			}, a.pulse, agentService, notifyService, journalService)
 		}
 	} else {

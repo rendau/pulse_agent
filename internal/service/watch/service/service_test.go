@@ -90,10 +90,12 @@ type fakeNotify struct {
 	finished      map[string]string
 	retried       []string
 	observed      []string
+	signals       []*notifyModel.Signal
 }
 
 func (n *fakeNotify) Observe(_ context.Context, s *notifyModel.Signal, _ time.Duration) (bool, error) {
 	n.observed = append(n.observed, s.Key)
+	n.signals = append(n.signals, s)
 	return true, nil
 }
 
