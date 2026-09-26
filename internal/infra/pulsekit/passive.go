@@ -10,8 +10,9 @@ import (
 // Passive — пассивная проверка зависимости по исходам настоящих вызовов: для платных API, API
 // с лимитами и API без health-ручки, где проверочный запрос стоит денег или квоты. Клиент
 // зовёт Observe после каждого вызова; Check (передаётся в Depend) смотрит вызовы за окно:
-// все последние неудачны — down, неудачных больше половины — degraded, вызовов не было — ok
-// (не с чем сравнить: проверка честна только про реальный трафик).
+// все последние неудачны — down, неудачных больше половины — degraded, вызовов не было — ok с
+// пометкой «вызовов не было» (не с чем сравнить: проверка честна только про реальный трафик).
+// Редкий критичный вызов — Idle(): вызовов не было — проверьте хотя бы сеть (см. ExamplePassive_Idle).
 //
 //	bank := pulsekit.NewPassive(5 * time.Minute)
 //	a.pulsekit.Depend("bank", "http", pulsekit.Host(config.Conf.BankUrl), false, bank.Check).Affects("онлайн-оплата")
@@ -43,9 +44,10 @@ func NewPassive(window time.Duration) *Passive {
 	return &Passive{window: window, minCalls: 3}
 }
 
-// Observe — исход вызова: сбой связи или 5xx — ошибка; любой ответ системы, включая
-// бизнес-отказ (404 геокодера на плохой адрес, повторный capture), — nil: система ответила,
-// зависимость работает. Что считать сбоем, решает сервис.
+// Observe — исход вызова. Сбой — зависимость не сделала свою работу для сервиса: сеть, 5xx, а
+// также отказы, которые значат поломку интеграции (401/403 — ключ, 429 — квота, 400 на запрос,
+// который сервис должен формировать правильно). Штатный ответ системы, даже отказ по делу (404
+// геокодера на плохой адрес, повторный capture), — nil: зависимость работает. Решает сервис.
 func (p *Passive) Observe(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -55,8 +57,15 @@ func (p *Passive) Observe(err error) {
 	}
 }
 
+// Idle — вызовов за окно не было: Check судить не по чему.
+func (p *Passive) Idle() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.calls) == 0 || !p.calls[len(p.calls)-1].at.After(time.Now().Add(-p.window))
+}
+
 // Check — проверка для Depend: Problem с числом неудачных вызовов и причиной последнего
-// (своими словами — Describe).
+// (своими словами — Describe); вызовов не было — ok с пометкой.
 func (p *Passive) Check(context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -81,11 +90,25 @@ func (p *Passive) Check(context.Context) error {
 	}
 
 	switch {
+	case total == 0:
+		return Problem{Status: "ok", Message: "вызовов не было за " + humanWindow(p.window)}
 	case failedInRow >= p.minCalls:
 		return Problem{Status: "down", Message: fmt.Sprintf("последние %d вызовов неудачны: %s", failedInRow, Describe(last))}
 	case total > 0 && failed*2 > total:
-		return Problem{Status: "degraded", Message: fmt.Sprintf("неудачных вызовов %d из %d за %s: %s", failed, total, p.window, Describe(last))}
+		return Problem{Status: "degraded", Message: fmt.Sprintf("неудачных вызовов %d из %d за %s: %s", failed, total, humanWindow(p.window), Describe(last))}
 	default:
 		return nil
+	}
+}
+
+// humanWindow — окно для сообщения: «5 мин», «1 ч», иначе как есть.
+func humanWindow(d time.Duration) string {
+	switch {
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%d ч", d/time.Hour)
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%d мин", d/time.Minute)
+	default:
+		return d.String()
 	}
 }

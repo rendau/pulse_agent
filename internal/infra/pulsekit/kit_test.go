@@ -138,14 +138,18 @@ func TestPassive(t *testing.T) {
 		return k.Status().Dependencies[0]
 	}
 
-	assert.Equal(t, "ok", status().Status, "вызовов не было — не с чем сравнить")
+	got := status()
+	assert.Equal(t, "ok", got.Status, "вызовов не было — не с чем сравнить")
+	assert.Equal(t, "вызовов не было за 1 мин", got.Message)
+	assert.True(t, bank.Idle())
 
 	bank.Observe(nil)
 	bank.Observe(errors.New("POST https://api.bank.kz?key=s3cr3t: timeout"))
 	bank.Observe(errors.New("timeout"))
-	got := status()
+	assert.False(t, bank.Idle())
+	got = status()
 	assert.Equal(t, "degraded", got.Status, "неудачных больше половины")
-	assert.Equal(t, "неудачных вызовов 2 из 3 за 1m0s: таймаут", got.Message, "своими словами, без адреса с ключом")
+	assert.Equal(t, "неудачных вызовов 2 из 3 за 1 мин: таймаут", got.Message, "своими словами, без адреса с ключом")
 
 	bank.Observe(errors.New("connection refused"))
 	got = status()

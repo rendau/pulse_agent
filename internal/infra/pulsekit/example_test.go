@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 )
@@ -141,4 +142,25 @@ func ExampleDescribeText() {
 	// не найдено
 	// отклонено
 	// в соединении отказано
+}
+
+// Редкий критичный вызов (брокер оплаты — только при выдаче): были вызовы — судит пассивная
+// проверка, не было — хотя бы сеть до хоста, статус ok с пометкой.
+func ExamplePassive_Idle() {
+	kit := New(Config{}, Service{
+		Name: "orders", Title: "Заказы", Description: "Принимает заказы", OwnerTeam: "orders", Criticality: "high",
+	}, Build{})
+
+	broker := NewPassive(5 * time.Minute)
+	kit.Depend("broker", "http", Host("https://pay.broker.kz"), true, func(ctx context.Context) error {
+		if !broker.Idle() {
+			return broker.Check(ctx)
+		}
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", "pay.broker.kz:443")
+		if err != nil {
+			return err
+		}
+		_ = conn.Close()
+		return Problem{Status: "ok", Message: "вызовов не было, сеть до хоста есть"}
+	}).Affects("выдача заказов с оплатой")
 }
