@@ -22,7 +22,7 @@ type NotificationRep struct {
 	Text         string    `json:"text"`
 	Investigated bool      `json:"investigated"`
 	MutedBy      *int64    `json:"muted_by"`
-	// NotSubscribed — у беседы есть подписки, и уведомление ни под одну не подходит: не
+	// NotSubscribed — уведомление не подходит ни под одну подписку беседы (или подписок нет): не
 	// показывать, но подтвердить
 	NotSubscribed bool `json:"not_subscribed"`
 }
@@ -131,8 +131,8 @@ func (u UserReq) UserName() string {
 	return lo.CoalesceOrEmpty(u.Name, u.Id)
 }
 
-// SubscriptionReq — подписать беседу: присылать только подходящие уведомления (пустое поле —
-// любое). min_severity — info | warning | critical.
+// SubscriptionReq — подписать беседу: присылать подходящие уведомления (пустое поле — любое,
+// все поля пустые — всё). min_severity — info | warning | critical.
 type SubscriptionReq struct {
 	ConversationId string  `json:"conversation_id"`
 	Service        string  `json:"service,omitempty"`

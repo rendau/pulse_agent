@@ -124,7 +124,7 @@ func (h *Handler) Unmute(w http.ResponseWriter, r *http.Request, client string) 
 	writeJson(w, http.StatusOK, &dto.UnmuteRep{Unmuted: true})
 }
 
-// Subscriptions — GET /v1/subscriptions?conversation_id=: подписки беседы (пусто — приходит всё).
+// Subscriptions — GET /v1/subscriptions?conversation_id=: подписки беседы (пусто — не приходит ничего).
 func (h *Handler) Subscriptions(w http.ResponseWriter, r *http.Request, client string) {
 	subs, err := h.notify.Subscriptions(r.Context(), client, r.URL.Query().Get("conversation_id"))
 	if err != nil {

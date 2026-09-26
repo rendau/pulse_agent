@@ -167,9 +167,14 @@ func TestSubscriptions(t *testing.T) {
 		})
 	}
 
-	assert.Equal(t, []int64{1, 2, 3, 4}, delivered(), "без подписок — всё")
+	assert.Empty(t, delivered(), "без подписок — ничего")
 
-	_, err := s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100", Service: "caravan"})
+	all, err := s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100"})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2, 3, 4}, delivered(), "подписка без полей — всё")
+	require.NoError(t, s.Unsubscribe(ctx, "bot", "-100", all.Id))
+
+	_, err = s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100", Service: "caravan"})
 	require.NoError(t, err)
 	assert.Equal(t, []int64{1, 2}, delivered(), "только caravan")
 

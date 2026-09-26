@@ -143,7 +143,7 @@ func (u *Usecase) Unsubscribe(ctx context.Context, client, conversationId string
 	return nil
 }
 
-// Subscriptions — подписки беседы (пусто — приходит всё).
+// Subscriptions — подписки беседы (пусто — не приходит ничего).
 func (u *Usecase) Subscriptions(ctx context.Context, client, conversationId string) ([]*notifyModel.Subscription, error) {
 	conversationId, err := required(conversationId)
 	if err != nil {

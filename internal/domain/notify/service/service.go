@@ -118,7 +118,7 @@ func (s *Service) Feed(ctx context.Context, client, conversationId string, after
 
 	return lo.Map(notifications, func(n *model.Notification, _ int) *model.FeedItem {
 		mutedBy, _ := lo.Find(active, func(m *model.Mute) bool { return m.Covers(n) })
-		subscribed := len(subscriptions) == 0 || lo.ContainsBy(subscriptions, func(sub *model.Subscription) bool { return sub.Covers(n) })
+		subscribed := lo.ContainsBy(subscriptions, func(sub *model.Subscription) bool { return sub.Covers(n) })
 		return &model.FeedItem{Notification: n, MutedBy: mutedBy, NotSubscribed: !subscribed}
 	}), nil
 }
@@ -154,7 +154,7 @@ func (s *Service) Unsubscribe(ctx context.Context, client, conversationId string
 	return nil
 }
 
-// Subscriptions — подписки беседы (пусто — приходит всё).
+// Subscriptions — подписки беседы (пусто — не приходит ничего).
 func (s *Service) Subscriptions(ctx context.Context, client, conversationId string) ([]*model.Subscription, error) {
 	subs, err := s.repo.ListSubscriptions(ctx, client, conversationId)
 	if err != nil {
