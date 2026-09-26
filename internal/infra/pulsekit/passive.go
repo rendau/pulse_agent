@@ -43,7 +43,9 @@ func NewPassive(window time.Duration) *Passive {
 	return &Passive{window: window, minCalls: 3}
 }
 
-// Observe — исход вызова: nil — успех.
+// Observe — исход вызова: сбой связи или 5xx — ошибка; любой ответ системы, включая
+// бизнес-отказ (404 геокодера на плохой адрес, повторный capture), — nil: система ответила,
+// зависимость работает. Что считать сбоем, решает сервис.
 func (p *Passive) Observe(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

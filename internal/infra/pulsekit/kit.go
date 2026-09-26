@@ -1,5 +1,6 @@
-// Package pulsekit — манифест сервиса для pulse (pulse/docs/service-manifest.md; копия
-// pulse/internal/infra/pulsekit; третья копия — в gotemplate, правки вносить во все три): сервис объявляет
+// Package pulsekit — манифест сервиса для pulse (стандарт — github.com/mechta-market/pulse,
+// docs/service-manifest.md). Эталон пакета — gotemplate (internal/infra/pulsekit): в сервис он
+// копируется целиком и на месте не правится. Сервис объявляет
 // о себе сведения, зависимости (одной строкой рядом с созданием клиента), свои метрики,
 // узнаваемые ошибки в логах, показатели состояния и диагностические ручки с типизированным
 // ответом; пакет отдаёт /.well-known/pulse, /.well-known/pulse/status (фоновые проверки
@@ -231,10 +232,11 @@ func (d *DependencyDecl) Affects(what string) *DependencyDecl {
 	return d
 }
 
-// Problem — результат проверки со своим статусом и сообщением (degraded или down): сообщение
+// Problem — результат проверки со своим статусом и сообщением: degraded или down — проблема;
+// ok — зависимость в порядке, но с пометкой («вызовов не было, сеть до хоста есть»). Сообщение
 // уходит в ручку состояния как есть — пишите его сами, без текста чужих ошибок (≤ 300).
 type Problem struct {
-	Status  string // degraded | down
+	Status  string // ok | degraded | down
 	Message string
 }
 
@@ -328,7 +330,7 @@ func (k *Kit) checkAll(ctx context.Context) {
 			res := result{status: "ok", latency: took.Milliseconds()}
 			problem, isProblem := errors.AsType[Problem](err)
 			switch {
-			case isProblem && (problem.Status == "degraded" || problem.Status == "down"):
+			case isProblem && (problem.Status == "ok" || problem.Status == "degraded" || problem.Status == "down"):
 				res.status, res.message = problem.Status, cut(problem.Message, 300)
 			case err != nil:
 				res.status, res.message = "down", Describe(err)
@@ -361,24 +363,47 @@ func (k *Kit) checkAll(ctx context.Context) {
 	k.checkedAt = time.Now()
 }
 
+// describeRules — вид ошибки по её тексту, по порядку: сначала сеть и время, затем ответы
+// системы (не найдено, отклонено, внутренняя ошибка). Коды — отдельным числом: «14040» не 404.
+var describeRules = []struct {
+	re   *regexp.Regexp
+	text string
+}{
+	{regexp.MustCompile(`deadline|timeout|timed out`), "таймаут"},
+	{regexp.MustCompile(`connection refused`), "в соединении отказано"},
+	{regexp.MustCompile(`no such host|lookup .*: `), "хост не найден"},
+	{regexp.MustCompile(`\b(401|403)\b|unauthori[sz]ed|unauthenticated|forbidden|permission denied|authentication`), "отказ в авторизации"},
+	{regexp.MustCompile(`not configured`), "не настроена"},
+	{regexp.MustCompile(`\b(502|503)\b|unavailable|connection reset|broken pipe|\beof\b|no route to host|network is unreachable`), "не отвечает"},
+	{regexp.MustCompile(`\b404\b|not found|no rows|does not exist|не найден`), "не найдено"},
+	{regexp.MustCompile(`\b(400|409|412|422|429)\b|invalid|bad request|rejected|validation|conflict|already|too many requests|precondition|некорректн|отклон`), "отклонено"},
+	{regexp.MustCompile(`\b50[0-9]\b|internal`), "внутренняя ошибка"},
+}
+
 // Describe — короткое сообщение вместо текста ошибки: драйверы кладут в него строки
-// подключения с паролями и данные запросов. Годится для своих message и Error.Message.
+// подключения с паролями и данные запросов. Различает сеть (таймаут, отказ в соединении, хост
+// не найден, не отвечает), авторизацию и ответы системы (не найдено, отклонено, внутренняя
+// ошибка); вид не понятен — «ошибка». Годится для своих message и Error.Message.
 func Describe(err error) string {
-	text := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(text, "deadline") || strings.Contains(text, "timeout"):
-		return "таймаут"
-	case strings.Contains(text, "connection refused"):
-		return "в соединении отказано"
-	case strings.Contains(text, "no such host") || strings.Contains(text, "lookup"):
-		return "хост не найден"
-	case strings.Contains(text, "401") || strings.Contains(text, "403") || strings.Contains(text, "unauthorized") || strings.Contains(text, "authentication"):
-		return "отказ в авторизации"
-	case strings.Contains(text, "not configured"):
-		return "не настроена"
-	default:
-		return "не отвечает"
+	if err == nil {
+		return ""
 	}
+	return DescribeText(err.Error())
+}
+
+// DescribeText — то же для сохранённого текста ошибки (причина застревания в БД и т. п.);
+// пустой текст — пусто.
+func DescribeText(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return ""
+	}
+	for _, r := range describeRules {
+		if r.re.MatchString(text) {
+			return r.text
+		}
+	}
+	return "ошибка"
 }
 
 // Status — ответ ручки состояния: последний результат фоновых проверок. down — упала

@@ -114,7 +114,7 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `evals/` — `cases.yaml` и `baseline.json`, вшиты в образ (`embed.go`).
 - `internal/infra/httpx/` — единая фабрика http-клиентов (таймауты, лимиты; все клиенты только через неё).
 - `internal/infra/pulsekit/` — манифест сервиса по стандарту pulse (`pulse/docs/service-manifest.md`; копия
-  `pulse/internal/infra/pulsekit`; третья копия — в gotemplate, правки вносить во все три). Манифест агента —
+  эталон — gotemplate `internal/infra/pulsekit`; копии в pulse и здесь совпадают с ним файл в файл). Манифест агента —
   `app/manifest.go`: команда platform, критичность low, зависимости pulse и llm (критичные; `Provider.Ping` —
   без генерации) и журнал в Postgres, ручка `question_stats` (агрегаты журнала за 1h/24h/7d, без текстов и
   имён). На системном порту: `/.well-known/pulse`, `/.well-known/pulse/status`, `/diag/questions`.

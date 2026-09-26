@@ -23,7 +23,19 @@ type schema struct {
 	Personal             string             `json:"x-personal,omitempty"`
 }
 
-var timeType = reflect.TypeFor[time.Time]()
+var (
+	timeType = reflect.TypeFor[time.Time]()
+	enumType = reflect.TypeFor[Enum]()
+)
+
+// Enum — тип поля ответа со своим перечнем значений: pulsekit берёт enum схемы из него, и
+// перечень не расходится с константами кода.
+//
+//	type ReasonCode string
+//	func (ReasonCode) PulseEnum() []string { return []string{"no_stock", "unpaid", "address"} }
+type Enum interface {
+	PulseEnum() []string
+}
 
 func zeroType(v any) reflect.Type {
 	return reflect.TypeOf(v)
@@ -31,7 +43,8 @@ func zeroType(v any) reflect.Type {
 
 // schemaOf строит схему ответа из Go-типа: struct — object (поля по json-тегам), slice — array,
 // map[string]число/bool — словарь, time.Time — date-time (RFC 3339 со смещением; UTC — «Z»,
-// это тоже по стандарту), указатель — то же поле, nil — null («нет значения»). Теги поля:
+// это тоже по стандарту), указатель — то же поле, nil — null («нет значения»), строковый тип с
+// методом PulseEnum — enum из него. Теги поля (enum в теге — вместо PulseEnum):
 //
 //	`pulse:"personal=phone,maxLength=300,maxItems=50,enum=new|paid|shipped,description=…"`
 //
@@ -75,7 +88,11 @@ func schemaOf(t reflect.Type, path string) *schema {
 		}
 		return &schema{Type: "object", AdditionalProperties: values}
 	case t.Kind() == reflect.String:
-		return &schema{Type: "string"}
+		result := &schema{Type: "string"}
+		if t.Implements(enumType) {
+			result.Enum = reflect.Zero(t).Interface().(Enum).PulseEnum()
+		}
+		return result
 	case t.Kind() == reflect.Bool:
 		return &schema{Type: "boolean"}
 	case t.Kind() >= reflect.Int && t.Kind() <= reflect.Uint64:

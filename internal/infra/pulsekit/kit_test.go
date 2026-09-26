@@ -235,14 +235,14 @@ func TestCheckEndpoint(t *testing.T) {
 
 func TestHost(t *testing.T) {
 	for addr, host := range map[string]string{
-		"postgres://app:s3cr3t@ocenter-pg:5432/orders?sslmode=disable":  "ocenter-pg:5432",
-		"host=ocenter-pg port=5432 user=app password=s3cr3t dbname=app": "ocenter-pg:5432",
+		"postgres://app:s3cr3t@ocenter-pg:5432/orders?sslmode=disable":  "ocenter-pg",
+		"host=ocenter-pg port=5432 user=app password=s3cr3t dbname=app": "ocenter-pg",
 		"host='db1,db2' password=x":                                     "db1",
-		"postgres://app:pw@db1:5432,db2:5432/orders":                    "db1:5432",
-		"dns:///orders-api:9090":                                        "orders-api:9090",
+		"postgres://app:pw@db1:5432,db2:5432/orders":                    "db1",
+		"dns:///orders-api:9090":                                        "orders-api",
 		"https://api.bank.kz/v1/pay":                                    "api.bank.kz",
-		"redis:6379":                                                    "redis:6379",
-		"[::1]:5432":                                                    "[::1]:5432",
+		"redis:6379":                                                    "redis",
+		"[::1]:5432":                                                    "::1",
 		"password=s3cr3t":                                               "",
 		"что-то странное с пробелами":                                   "",
 		"": "",
@@ -291,4 +291,52 @@ func TestRegistrationRules(t *testing.T) {
 	}
 	assert.Equal(t, "unknown", targets["pg"], "учётные данные в target — не в манифест, сервис не падает")
 	assert.Equal(t, "unknown", targets["pg2"])
+}
+
+func TestDescribe(t *testing.T) {
+	for text, want := range map[string]string{
+		"context deadline exceeded":                           "таймаут",
+		"dial tcp 10.0.0.1:5432: connect: connection refused": "в соединении отказано",
+		"rpc error: code = Unavailable desc = no connection":  "не отвечает",
+		"POST https://mdm/api: 503 Service Unavailable":       "не отвечает",
+		"warehouse not found in MDM":                          "не найдено",
+		"GET /orders/14040: 404":                              "не найдено",
+		"receipt: invalid sum":                                "отклонено",
+		"payment already captured":                            "отклонено",
+		"status 500: internal server error":                   "внутренняя ошибка",
+		"401 Unauthorized":                                    "отказ в авторизации",
+		"что-то пошло не так":                                 "ошибка",
+	} {
+		assert.Equal(t, want, DescribeText(text), text)
+	}
+	assert.Empty(t, DescribeText("  "), "пустой текст — пусто, а не «не отвечает»")
+	assert.Equal(t, "ошибка", DescribeText("order 14040 failed"), "число внутри — не код 404")
+	assert.Empty(t, Describe(nil))
+}
+
+type reasonCode string
+
+func (reasonCode) PulseEnum() []string { return []string{"no_stock", "unpaid"} }
+
+func TestEnumFromType(t *testing.T) {
+	type rep struct {
+		Reason  reasonCode `json:"reason"`
+		Tagged  reasonCode `json:"tagged" pulse:"enum=a|b"`
+		Reasons []reasonCode
+	}
+	s := schemaOf(zeroType(rep{}), "rep")
+	assert.Equal(t, []string{"no_stock", "unpaid"}, s.Properties["reason"].Enum, "перечень — из типа")
+	assert.Equal(t, []string{"a", "b"}, s.Properties["tagged"].Enum, "тег — вместо типа")
+	assert.Equal(t, []string{"no_stock", "unpaid"}, s.Properties["Reasons"].Items.Enum)
+}
+
+func TestProblemOk(t *testing.T) {
+	k := New(Config{}, testService, Build{})
+	k.Depend("broker", "http", "broker.kz", true, func(context.Context) error {
+		return Problem{Status: "ok", Message: "вызовов не было, сеть до хоста есть"}
+	})
+	k.checkAll(context.Background())
+	status := k.Status()
+	assert.Equal(t, "ok", status.Status)
+	assert.Equal(t, "вызовов не было, сеть до хоста есть", status.Dependencies[0].Message, "пометка у ok")
 }
