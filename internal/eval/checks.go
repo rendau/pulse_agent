@@ -13,12 +13,16 @@ import (
 	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
 )
 
+// skillTool — инструмент навыков агента (open_skill).
+const skillTool = "open_skill"
+
 // Evaluate — какие проверки ответ не прошёл (пусто — прошёл).
 func Evaluate(c Checks, rep *dto.AskRep) []string {
 	var failures []string
 	fail := func(format string, args ...any) { failures = append(failures, fmt.Sprintf(format, args...)) }
 
-	tools := lo.Map(rep.Trace, func(t *dto.ToolTraceRep, _ int) string { return t.Tool })
+	// навыки (open_skill) — руководства агента, не вызовы pulse: в порядке и составе вызовов не считаются
+	tools := lo.FilterMap(rep.Trace, func(t *dto.ToolTraceRep, _ int) (string, bool) { return t.Tool, t.Tool != skillTool })
 
 	for _, want := range c.Calls {
 		if !lo.ContainsBy(rep.Trace, func(t *dto.ToolTraceRep) bool { return t.Tool == want.Tool && argsMatch(t.Arguments, want.Args) }) {

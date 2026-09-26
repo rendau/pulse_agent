@@ -86,7 +86,7 @@ func textStep(text string) *llmModel.Response {
 }
 
 func newService(llm *fakeLlm, pulse *fakePulse, maxToolCalls int) *Service {
-	return New(Config{MaxToolCalls: maxToolCalls, Timeout: 5 * time.Minute}, llm, pulse, nil, testPii, nil)
+	return New(Config{MaxToolCalls: maxToolCalls, Timeout: 5 * time.Minute}, llm, pulse, nil, testPii, nil, nil)
 }
 
 func TestRun_ToolLoop(t *testing.T) {
@@ -265,7 +265,7 @@ func TestRun_Charts(t *testing.T) {
 	}}
 	chart := &fakeChart{}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, chart, testPii, nil).Run(context.Background(), &agentModel.Req{Question: "память caravan?", Charts: true})
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, chart, testPii, nil, nil).Run(context.Background(), &agentModel.Req{Question: "память caravan?", Charts: true})
 	require.NoError(t, err)
 
 	assert.True(t, lo.ContainsBy(llm.requests[0].Tools, func(d llmModel.ToolDef) bool { return d.Name == localConstant.ChartTool }))
@@ -297,7 +297,7 @@ func TestRun_ChartsLimit(t *testing.T) {
 	}
 	llm := &fakeLlm{steps: []*llmModel.Response{toolStep("s1", calls...), textStep("ok")}}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}, testPii, nil).Run(context.Background(), &agentModel.Req{Question: "q", Charts: true})
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}, testPii, nil, nil).Run(context.Background(), &agentModel.Req{Question: "q", Charts: true})
 	require.NoError(t, err)
 	assert.Len(t, res.Charts, localConstant.MaxCharts)
 	assert.Contains(t, llm.requests[1].ToolResults[localConstant.MaxCharts].Output, "не больше")
@@ -311,7 +311,7 @@ func TestRun_JsonFormat(t *testing.T) {
 		"next_steps":["проверить медленные запросы"],"unavailable_sources":["loki"]}`
 	llm := &fakeLlm{steps: []*llmModel.Response{textStep(structured)}}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}, testPii, nil).
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}, testPii, nil, nil).
 		Run(context.Background(), &agentModel.Req{Question: "что с caravan?", Format: localConstant.FormatJson})
 	require.NoError(t, err)
 
@@ -337,7 +337,7 @@ func TestRun_JsonFormat(t *testing.T) {
 
 	// модель не выдала JSON — текст как есть, без полей
 	llm = &fakeLlm{steps: []*llmModel.Response{textStep("не JSON")}}
-	res, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, nil).
+	res, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, nil, nil).
 		Run(context.Background(), &agentModel.Req{Question: "q", Format: localConstant.FormatJson})
 	require.NoError(t, err)
 	assert.Nil(t, res.Structured)
@@ -345,8 +345,8 @@ func TestRun_JsonFormat(t *testing.T) {
 }
 
 func TestSystemPrompt_Formats(t *testing.T) {
-	telegram := localConstant.SystemPrompt("instr", "", false, true)
-	plain := localConstant.SystemPrompt("instr", localConstant.FormatPlain, false, false)
+	telegram := localConstant.SystemPrompt("instr", "", "", false, true)
+	plain := localConstant.SystemPrompt("instr", "", localConstant.FormatPlain, false, false)
 
 	assert.Contains(t, telegram, "Markdown для Telegram")
 	assert.Contains(t, telegram, "render_chart")
@@ -366,7 +366,7 @@ func TestRun_ClientSchema(t *testing.T) {
 	}, "required": []any{"order_status"}}
 	llm := &fakeLlm{steps: []*llmModel.Response{textStep(`{"order_status":"completed","failed_service":null}`)}}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, nil).
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, nil, nil).
 		Run(context.Background(), &agentModel.Req{Question: "что по заказу 41314079?", Format: localConstant.FormatJson, ResponseSchema: schema})
 	require.NoError(t, err)
 
@@ -383,7 +383,7 @@ func TestRun_ClientSchema(t *testing.T) {
 
 	// неверная схема — ошибка клиента, модель не вызывается
 	llm = &fakeLlm{}
-	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, nil).
+	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, nil, nil).
 		Run(context.Background(), &agentModel.Req{Question: "q", ResponseSchema: map[string]any{"type": "array"}})
 	require.ErrorIs(t, err, errs.InvalidRequest)
 	assert.Empty(t, llm.requests)
@@ -445,7 +445,7 @@ func TestChatTools(t *testing.T) {
 		textStep("Приглушил caravan на сутки."),
 	}}
 	pulse, chat := &fakePulse{}, &fakeChatTools{}
-	s := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, pulse, nil, testPii, chat)
+	s := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, pulse, nil, testPii, chat, nil)
 
 	res, err := s.Run(context.Background(), &agentModel.Req{
 		Question: "не присылай про caravan до завтра",
@@ -462,7 +462,7 @@ func TestChatTools(t *testing.T) {
 
 	// без беседы — ни инструментов, ни заметок
 	llm = &fakeLlm{steps: []*llmModel.Response{textStep("ок")}}
-	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, chat).
+	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii, chat, nil).
 		Run(context.Background(), &agentModel.Req{Question: "что с caravan?"})
 	require.NoError(t, err)
 	assert.False(t, lo.ContainsBy(llm.requests[0].Tools, func(d llmModel.ToolDef) bool { return d.Name == "notifications_mute" }))

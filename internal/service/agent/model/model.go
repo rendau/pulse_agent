@@ -124,3 +124,14 @@ type ToolTrace struct {
 	Duration  time.Duration
 	Chart     *Chart // построенный график (render_chart)
 }
+
+// Skill — навык: руководство по теме, которое модель открывает сама (open_skill). В системном
+// промпте — только имя, название и когда нужен.
+type Skill struct {
+	Name  string
+	Title string
+	When  string
+	Body  string
+	// RequiresChat — только в беседе (нужны инструменты беседы)
+	RequiresChat bool
+}

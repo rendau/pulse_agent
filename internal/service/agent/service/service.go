@@ -35,11 +35,13 @@ type Service struct {
 	chart chartI // nil — без графиков
 	pii   piiI
 	chat  ChatToolsI // nil — без инструментов беседы (нет хранилища)
-	now   func() time.Time
+	// skills — навыки (open_skill); пусто — без навыков
+	skills []agentModel.Skill
+	now    func() time.Time
 }
 
-func New(cfg Config, llm llmI, pulse pulseI, chart chartI, pii piiI, chat ChatToolsI) *Service {
-	return &Service{cfg: cfg, llm: llm, pulse: pulse, chart: chart, pii: pii, chat: chat, now: time.Now}
+func New(cfg Config, llm llmI, pulse pulseI, chart chartI, pii piiI, chat ChatToolsI, skills []agentModel.Skill) *Service {
+	return &Service{cfg: cfg, llm: llm, pulse: pulse, chart: chart, pii: pii, chat: chat, skills: skills, now: time.Now}
 }
 
 func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Result, error) {
@@ -62,8 +64,11 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 		}
 	}
 
+	chat := lo.Ternary(s.chat != nil, req.Chat, nil)
+	skills := availableSkills(s.skills, chat != nil)
+
 	llmReq := &llmModel.Request{
-		System:   localConstant.SystemPrompt(catalog.Instructions, req.Format, clientSchema != nil, s.chart != nil && req.Charts),
+		System:   localConstant.SystemPrompt(catalog.Instructions, skillsList(skills), req.Format, clientSchema != nil, s.chart != nil && req.Charts),
 		Messages: buildMessages(req, started, s.pii.Mask),
 		Tools:    lo.Map(catalog.Tools, encodeTool),
 	}
@@ -78,9 +83,11 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 			Name: localConstant.ChartTool, Description: localConstant.ChartDescription, Parameters: localConstant.ChartSchema,
 		})
 	}
-	chat := lo.Ternary(s.chat != nil, req.Chat, nil)
 	if chat != nil {
 		llmReq.Tools = append(llmReq.Tools, s.chat.Defs()...)
+	}
+	if len(skills) > 0 {
+		llmReq.Tools = append(llmReq.Tools, skillTool(skills))
 	}
 
 	result := &agentModel.Result{}
@@ -133,7 +140,7 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 		}
 
 		toolCtx, toolCancel := context.WithDeadline(ctx, loopDeadline)
-		traces := s.callTools(toolCtx, chat, result.Steps, resp.ToolCalls, result.Trace)
+		traces := s.callTools(toolCtx, chat, skills, result.Steps, resp.ToolCalls, result.Trace)
 		toolCancel()
 		result.Charts = collectCharts(result.Charts, traces)
 		llmReq.ToolResults = toolResults(resp.ToolCalls, traces)
@@ -189,7 +196,7 @@ func (s *Service) complete(ctx context.Context, req *llmModel.Request) (*llmMode
 
 // callTools выполняет вызовы шага step параллельно; ошибка вызова не роняет
 // разбор, а уходит модели текстом. prior — вызовы прошлых шагов (данные для графиков).
-func (s *Service) callTools(ctx context.Context, chat *agentModel.Chat, step int, calls []llmModel.ToolCall, prior []agentModel.ToolTrace) []agentModel.ToolTrace {
+func (s *Service) callTools(ctx context.Context, chat *agentModel.Chat, skills []agentModel.Skill, step int, calls []llmModel.ToolCall, prior []agentModel.ToolTrace) []agentModel.ToolTrace {
 	traces := make([]agentModel.ToolTrace, len(calls))
 
 	var g errgroup.Group
@@ -198,6 +205,8 @@ func (s *Service) callTools(ctx context.Context, chat *agentModel.Chat, step int
 			switch {
 			case call.Name == localConstant.ChartTool && s.chart != nil:
 				traces[i] = s.callChart(step, call, prior)
+			case call.Name == localConstant.SkillTool && len(skills) > 0:
+				traces[i] = s.callSkill(step, call, skills)
 			case chat != nil && s.chat.Has(call.Name):
 				traces[i] = s.callChatTool(ctx, chat, step, call)
 			default:

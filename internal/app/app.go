@@ -48,6 +48,7 @@ import (
 	usecaseMonitorP "github.com/mechta-market/pulse_agent/internal/usecase/monitor"
 	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
 	usecaseNotifyP "github.com/mechta-market/pulse_agent/internal/usecase/notify"
+	"github.com/mechta-market/pulse_agent/skills"
 )
 
 type App struct {
@@ -149,13 +150,17 @@ func (a *App) Init() {
 		agentChatTools = serviceChattoolsServiceP.New(chatService, notifyService)
 	}
 
+	// skills (навыки агента, вшиты в образ)
+	agentSkills, err := serviceAgentServiceP.ParseSkills(skills.Files)
+	errCheck(err, "skills")
+
 	// agent
 	agentService := serviceAgentServiceP.New(
 		serviceAgentServiceP.Config{
 			MaxToolCalls: config.Conf.AgentMaxToolCalls,
 			Timeout:      config.Conf.AgentTimeout,
 		},
-		llmProvider, a.pulse, chartService, piiService, agentChatTools,
+		llmProvider, a.pulse, chartService, piiService, agentChatTools, agentSkills,
 	)
 
 	// dialog
