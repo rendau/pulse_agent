@@ -3,6 +3,12 @@
 // (internal/service/llm/<provider>) переводят его в свой API.
 package model
 
+import "errors"
+
+// ErrNoCredits — у провайдера кончились деньги или квота аккаунта: адаптер распознаёт это по
+// своим кодам ошибок; не отвечает ни один разбор, пока не пополнят.
+var ErrNoCredits = errors.New("llm provider: no credits or quota left")
+
 // роли сообщений истории
 const (
 	RoleUser      = "user"

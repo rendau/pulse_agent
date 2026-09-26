@@ -58,6 +58,10 @@ func New(cfg Config, httpClient *http.Client) *Service {
 }
 
 // Ping — GET /models/{model}: проверяет ключ и доступность модели, токены не тратит.
+// noCreditsCodes — коды и типы ошибок OpenAI «кончились деньги или квота аккаунта» (429, но не
+// частота запросов: повтор не поможет, нужно пополнить).
+var noCreditsCodes = []string{"insufficient_quota", "credit_balance_exhausted"}
+
 func (s *Service) Ping(ctx context.Context) error {
 	if _, err := s.client.Models.Get(ctx, s.cfg.Model, option.WithMaxRetries(0)); err != nil {
 		return fmt.Errorf("Models.Get: %w", err)
@@ -112,8 +116,13 @@ func (s *Service) Complete(ctx context.Context, req *llmModel.Request) (*llmMode
 	if err != nil {
 		// 400 — запрос не принят (в т.ч. схема ответа от клиента не подходит под strict):
 		// ошибка клиента с объяснением провайдера, а не сбой сервиса
-		if apiErr, ok := errors.AsType[*openai.Error](err); ok && apiErr.StatusCode == http.StatusBadRequest {
-			return nil, fmt.Errorf("%w: openai: %s", errs.InvalidRequest, lo.CoalesceOrEmpty(apiErr.Message, err.Error()))
+		if apiErr, ok := errors.AsType[*openai.Error](err); ok {
+			switch {
+			case apiErr.StatusCode == http.StatusBadRequest:
+				return nil, fmt.Errorf("%w: openai: %s", errs.InvalidRequest, lo.CoalesceOrEmpty(apiErr.Message, err.Error()))
+			case lo.Contains(noCreditsCodes, apiErr.Code) || lo.Contains(noCreditsCodes, apiErr.Type):
+				return nil, fmt.Errorf("%w: openai: %s", llmModel.ErrNoCredits, lo.CoalesceOrEmpty(apiErr.Message, err.Error()))
+			}
 		}
 		return nil, fmt.Errorf("openai responses.new: %w", err)
 	}

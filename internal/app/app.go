@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	serviceChartServiceP "github.com/mechta-market/pulse_agent/internal/service/chart/service"
 	serviceChattoolsServiceP "github.com/mechta-market/pulse_agent/internal/service/chattools/service"
 	"github.com/mechta-market/pulse_agent/internal/service/llm"
+	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
 	serviceLlmOpenaiServiceP "github.com/mechta-market/pulse_agent/internal/service/llm/openai/service"
 	servicePiiServiceP "github.com/mechta-market/pulse_agent/internal/service/pii/service"
 	servicePulseServiceP "github.com/mechta-market/pulse_agent/internal/service/pulse/service"
@@ -111,7 +113,11 @@ func (a *App) Init() {
 	slog.Info("llm", "provider", llmProvider.Name(), "model", config.Conf.LlmModel, "reasoning_effort", config.Conf.LlmReasoningEffort)
 	// платный API: здоровье — по настоящим вызовам (кончились деньги — Ping этого не видит)
 	llmCalls := pulsekit.NewPassive(15 * time.Minute)
-	llmProvider = llm.Observed(llmProvider, llmCalls.Observe)
+	var llmNoCredits atomic.Bool // последний вызов: у провайдера кончились деньги или квота
+	llmProvider = llm.Observed(llmProvider, func(err error) {
+		llmNoCredits.Store(errors.Is(err, llmModel.ErrNoCredits))
+		llmCalls.Observe(err)
+	})
 
 	// pulse (MCP)
 	a.pulse = servicePulseServiceP.New(
@@ -239,7 +245,11 @@ func (a *App) Init() {
 		}).Affects("ответы на вопросы и разборы уведомлений")
 		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, func(ctx context.Context) error {
 			if !llmCalls.Idle() {
-				return llmCalls.Check(ctx)
+				err := llmCalls.Check(ctx)
+				if err != nil && llmNoCredits.Load() {
+					return pulsekit.Problem{Status: "down", Message: "у провайдера LLM кончились деньги или квота — нужно пополнить"}
+				}
+				return err
 			}
 			return llmProvider.Ping(ctx)
 		}).Affects("ответы на вопросы и разборы уведомлений")

@@ -187,3 +187,17 @@ func TestComplete_BadRequest(t *testing.T) {
 	require.ErrorIs(t, err, errs.InvalidRequest)
 	assert.ErrorContains(t, err, "Invalid schema")
 }
+
+func TestComplete_NoCredits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"You have no credits remaining.","type":"insufficient_quota","param":null,"code":"credit_balance_exhausted"}}`))
+	}))
+	defer srv.Close()
+
+	_, err := New(Config{ApiKey: "sk-test", BaseUrl: srv.URL, Model: "gpt-6-sol"}, srv.Client()).
+		Complete(context.Background(), &llmModel.Request{Messages: []llmModel.Message{{Role: llmModel.RoleUser, Text: "q"}}})
+	require.ErrorIs(t, err, llmModel.ErrNoCredits)
+	assert.ErrorContains(t, err, "no credits remaining")
+}

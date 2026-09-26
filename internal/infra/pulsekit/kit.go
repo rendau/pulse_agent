@@ -449,7 +449,7 @@ func (k *Kit) checkAll(ctx context.Context) {
 }
 
 // describeRules — вид ошибки по её тексту, по порядку: сначала сеть и время, затем ответы
-// системы (не найдено, лимит или квота, отклонено, внутренняя ошибка). Коды — отдельным числом: «14040» не 404.
+// системы (не найдено, превышен лимит запросов, отклонено, внутренняя ошибка). Коды — отдельным числом: «14040» не 404.
 var describeRules = []struct {
 	re   *regexp.Regexp
 	text string
@@ -461,15 +461,15 @@ var describeRules = []struct {
 	{regexp.MustCompile(`not configured`), "не настроена"},
 	{regexp.MustCompile(`\b(502|503)\b|unavailable|connection reset|broken pipe|\beof\b|no route to host|network is unreachable`), "не отвечает"},
 	{regexp.MustCompile(`\b404\b|not found|no rows|does not exist|не найден`), "не найдено"},
-	{regexp.MustCompile(`\b429\b|too many requests|rate limit|quota|credit_balance|no credits|billing`), "лимит или квота исчерпаны"},
+	{regexp.MustCompile(`\b429\b|too many requests`), "превышен лимит запросов"},
 	{regexp.MustCompile(`\b(400|409|412|422)\b|invalid|bad request|rejected|validation|conflict|already|precondition|некорректн|отклон`), "отклонено"},
 	{regexp.MustCompile(`\b50[0-9]\b|internal`), "внутренняя ошибка"},
 }
 
 // Describe — короткое сообщение вместо текста ошибки: драйверы кладут в него строки
 // подключения с паролями и данные запросов. Различает сеть (таймаут, отказ в соединении, хост
-// не найден, не отвечает), авторизацию и ответы системы (не найдено, лимит или квота исчерпаны,
-// отклонено, внутренняя ошибка); вид не понятен — «ошибка». Годится для своих message и Error.Message.
+// не найден, не отвечает), авторизацию и ответы системы (не найдено, превышен лимит запросов —
+// HTTP 429, отклонено, внутренняя ошибка); вид не понятен — «ошибка». Годится для своих message и Error.Message.
 func Describe(err error) string {
 	if err == nil {
 		return ""
