@@ -114,11 +114,57 @@ type MuteSpec struct {
 	By   string
 }
 
+// важность уведомления по возрастанию
+var severityRank = map[string]int{"info": 1, "warning": 2, "critical": 3}
+
+// SeverityKnown — важность, которую можно указать в подписке (пусто — любая).
+func SeverityKnown(severity string) bool {
+	_, ok := severityRank[severity]
+	return severity == "" || ok
+}
+
+// Subscription — подписка беседы: какие уведомления ей присылать (пустое поле — любое). Нет
+// подписок — приходит всё; есть — только подходящее хотя бы под одну.
+type Subscription struct {
+	Id             int64
+	Client         string
+	ConversationId string
+
+	Service     string
+	Kind        string
+	MinSeverity string // info | warning | critical; пусто — любая
+
+	Note      string
+	CreatedAt time.Time
+	CreatedBy string
+}
+
+// Covers — уведомление подходит под подписку.
+func (s *Subscription) Covers(n *Notification) bool {
+	return (s.Service == "" || s.Service == n.Service) &&
+		(s.Kind == "" || s.Kind == n.Kind) &&
+		(s.MinSeverity == "" || severityRank[n.Severity] >= severityRank[s.MinSeverity])
+}
+
+// SubscriptionSpec — на что подписать беседу.
+type SubscriptionSpec struct {
+	Client         string
+	ConversationId string
+
+	Service     string
+	Kind        string
+	MinSeverity string
+	Note        string
+	By          string
+}
+
 // FeedItem — уведомление для беседы; MutedBy — приглушение, под которое оно попало (беседе
-// не присылается, но видно в списке приглушённых).
+// не присылается, но видно в списке приглушённых); NotSubscribed — у беседы есть подписки, и
+// уведомление ни под одну не подходит (не присылается).
 type FeedItem struct {
-	Notification *Notification
-	MutedBy      *Mute
+	Notification  *Notification
+	MutedBy       *Mute
+	NotSubscribed bool
 }
 
 // MuteState — приглушение и сколько уведомлений оно уже скрыло.

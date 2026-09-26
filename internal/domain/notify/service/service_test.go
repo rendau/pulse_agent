@@ -18,6 +18,27 @@ type fakeRepo struct {
 	RepoI
 	notifications []*model.Notification
 	mutes         []*model.Mute
+	subscriptions []*model.Subscription
+}
+
+func (r *fakeRepo) CreateSubscription(_ context.Context, s *model.Subscription) error {
+	s.Id = int64(len(r.subscriptions) + 1)
+	r.subscriptions = append(r.subscriptions, s)
+	return nil
+}
+
+func (r *fakeRepo) ListSubscriptions(_ context.Context, client, conversationId string) ([]*model.Subscription, error) {
+	return lo.Filter(r.subscriptions, func(s *model.Subscription, _ int) bool {
+		return s.Client == client && s.ConversationId == conversationId
+	}), nil
+}
+
+func (r *fakeRepo) DeleteSubscription(_ context.Context, client, conversationId string, id int64) (bool, error) {
+	n := len(r.subscriptions)
+	r.subscriptions = lo.Reject(r.subscriptions, func(s *model.Subscription, _ int) bool {
+		return s.Id == id && s.Client == client && s.ConversationId == conversationId
+	})
+	return len(r.subscriptions) < n, nil
 }
 
 func (r *fakeRepo) CreateNotification(_ context.Context, n *model.Notification) error {
@@ -125,4 +146,44 @@ func TestMuteValidation(t *testing.T) {
 
 	require.ErrorIs(t, s.Unmute(ctx, "bot", "2", m.Id), errs.ObjectNotFound, "чужая беседа")
 	require.NoError(t, s.Unmute(ctx, "bot", "1", m.Id))
+}
+
+func TestSubscriptions(t *testing.T) {
+	ctx := context.Background()
+	s := New(&fakeRepo{})
+	for _, n := range []*model.Notification{
+		{Kind: model.KindDeploy, Service: "caravan", Severity: "warning"},
+		{Kind: model.KindAlert, Service: "caravan", Severity: "critical"},
+		{Kind: model.KindAlert, Service: "notifire", Severity: "info"},
+		{Kind: model.KindAlert, Service: "receipt", Severity: "critical"},
+	} {
+		require.NoError(t, s.Notify(ctx, n))
+	}
+	delivered := func() []int64 {
+		feed, err := s.Feed(ctx, "bot", "-100", 0, 10)
+		require.NoError(t, err)
+		return lo.FilterMap(feed, func(item *model.FeedItem, _ int) (int64, bool) {
+			return item.Notification.Id, !item.NotSubscribed && item.MutedBy == nil
+		})
+	}
+
+	assert.Equal(t, []int64{1, 2, 3, 4}, delivered(), "без подписок — всё")
+
+	_, err := s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100", Service: "caravan"})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2}, delivered(), "только caravan")
+
+	critical, err := s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100", Kind: model.KindAlert, MinSeverity: "critical"})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2, 4}, delivered(), "плюс критичные алерты любого сервиса")
+
+	_, err = s.Mute(ctx, &model.MuteSpec{Client: "bot", ConversationId: "-100", Service: "receipt"})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2}, delivered(), "приглушение — поверх подписок")
+
+	require.NoError(t, s.Unsubscribe(ctx, "bot", "-100", critical.Id))
+	require.ErrorIs(t, s.Unsubscribe(ctx, "bot", "-200", 1), errs.ObjectNotFound, "чужая беседа")
+
+	_, err = s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100", MinSeverity: "high"})
+	require.ErrorIs(t, err, errs.InvalidRequest)
 }

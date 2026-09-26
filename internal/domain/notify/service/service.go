@@ -109,13 +109,58 @@ func (s *Service) Feed(ctx context.Context, client, conversationId string, after
 	if err != nil {
 		return nil, fmt.Errorf("repo.ListMutes: %w", err)
 	}
+	subscriptions, err := s.repo.ListSubscriptions(ctx, client, conversationId)
+	if err != nil {
+		return nil, fmt.Errorf("repo.ListSubscriptions: %w", err)
+	}
 	now := s.now()
 	active := lo.Filter(mutes, func(m *model.Mute, _ int) bool { return m.Active(now) })
 
 	return lo.Map(notifications, func(n *model.Notification, _ int) *model.FeedItem {
 		mutedBy, _ := lo.Find(active, func(m *model.Mute) bool { return m.Covers(n) })
-		return &model.FeedItem{Notification: n, MutedBy: mutedBy}
+		subscribed := len(subscriptions) == 0 || lo.ContainsBy(subscriptions, func(sub *model.Subscription) bool { return sub.Covers(n) })
+		return &model.FeedItem{Notification: n, MutedBy: mutedBy, NotSubscribed: !subscribed}
 	}), nil
+}
+
+// Subscribe подписывает беседу. Ошибки: errs.InvalidRequest — неизвестный вид или важность.
+func (s *Service) Subscribe(ctx context.Context, spec *model.SubscriptionSpec) (*model.Subscription, error) {
+	sub := &model.Subscription{
+		Client: spec.Client, ConversationId: spec.ConversationId,
+		Service: strings.TrimSpace(spec.Service), Kind: strings.TrimSpace(spec.Kind), MinSeverity: strings.TrimSpace(spec.MinSeverity),
+		Note: strings.TrimSpace(spec.Note), CreatedAt: s.now(), CreatedBy: spec.By,
+	}
+	switch {
+	case !model.KindKnown(sub.Kind):
+		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy or empty (any)", errs.InvalidRequest, sub.Kind)
+	case !model.SeverityKnown(sub.MinSeverity):
+		return nil, fmt.Errorf("%w: min_severity %q; expected info, warning, critical or empty (any)", errs.InvalidRequest, sub.MinSeverity)
+	}
+	if err := s.repo.CreateSubscription(ctx, sub); err != nil {
+		return nil, fmt.Errorf("repo.CreateSubscription: %w", err)
+	}
+	return sub, nil
+}
+
+// Unsubscribe убирает подписку беседы. Ошибки: errs.ObjectNotFound — у беседы нет такой.
+func (s *Service) Unsubscribe(ctx context.Context, client, conversationId string, id int64) error {
+	ok, err := s.repo.DeleteSubscription(ctx, client, conversationId, id)
+	if err != nil {
+		return fmt.Errorf("repo.DeleteSubscription: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: subscription %d", errs.ObjectNotFound, id)
+	}
+	return nil
+}
+
+// Subscriptions — подписки беседы (пусто — приходит всё).
+func (s *Service) Subscriptions(ctx context.Context, client, conversationId string) ([]*model.Subscription, error) {
+	subs, err := s.repo.ListSubscriptions(ctx, client, conversationId)
+	if err != nil {
+		return nil, fmt.Errorf("repo.ListSubscriptions: %w", err)
+	}
+	return subs, nil
 }
 
 // Mute заводит приглушение в беседе. Ошибки: errs.InvalidRequest — неизвестный вид, отрицательный

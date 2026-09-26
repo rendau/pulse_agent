@@ -28,7 +28,7 @@ func New(chat ChatServiceI, notify NotifyServiceI) *Usecase {
 }
 
 // Feed — новые уведомления беседы (после подтверждённых Ack), по порядку; приглушённые — с
-// MutedBy (беседе их не присылают, но подтверждают). Беседа, впервые читающая ленту,
+// MutedBy, не по подпискам беседы — с NotSubscribed (беседе их не присылают, но подтверждают). Беседа, впервые читающая ленту,
 // подписывается с текущего места: старые уведомления ей не приходят.
 func (u *Usecase) Feed(ctx context.Context, client, conversationId string, limit int) ([]*notifyModel.FeedItem, error) {
 	conversationId, err := required(conversationId)
@@ -116,6 +116,44 @@ func (u *Usecase) Mutes(ctx context.Context, client, conversationId string, limi
 		return nil, nil, fmt.Errorf("notify.Muted: %w", err)
 	}
 	return mutes, muted, nil
+}
+
+// Subscribe — подписка беседы (spec.Client и ConversationId проставляются здесь).
+func (u *Usecase) Subscribe(ctx context.Context, client, conversationId string, spec *notifyModel.SubscriptionSpec) (*notifyModel.Subscription, error) {
+	conversationId, err := required(conversationId)
+	if err != nil {
+		return nil, err
+	}
+	spec.Client, spec.ConversationId = client, conversationId
+	sub, err := u.notify.Subscribe(ctx, spec)
+	if err != nil {
+		return nil, fmt.Errorf("notify.Subscribe: %w", err)
+	}
+	return sub, nil
+}
+
+func (u *Usecase) Unsubscribe(ctx context.Context, client, conversationId string, id int64) error {
+	conversationId, err := required(conversationId)
+	if err != nil {
+		return err
+	}
+	if err = u.notify.Unsubscribe(ctx, client, conversationId, id); err != nil {
+		return fmt.Errorf("notify.Unsubscribe: %w", err)
+	}
+	return nil
+}
+
+// Subscriptions — подписки беседы (пусто — приходит всё).
+func (u *Usecase) Subscriptions(ctx context.Context, client, conversationId string) ([]*notifyModel.Subscription, error) {
+	conversationId, err := required(conversationId)
+	if err != nil {
+		return nil, err
+	}
+	subs, err := u.notify.Subscriptions(ctx, client, conversationId)
+	if err != nil {
+		return nil, fmt.Errorf("notify.Subscriptions: %w", err)
+	}
+	return subs, nil
 }
 
 // Chat — контекст беседы (заметки).

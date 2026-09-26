@@ -17,6 +17,7 @@ const (
 	PathNotifications = "/v1/notifications"
 	PathAck           = "/v1/notifications/ack"
 	PathMutes         = "/v1/mutes"
+	PathSubscriptions = "/v1/subscriptions"
 	PathChat          = "/v1/chat"
 	PathChatNotes     = "/v1/chat/notes"
 )
@@ -30,6 +31,9 @@ func (h *Handler) registerNotify(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+PathMutes, h.withClient(h.withNotify(h.Mutes)))
 	mux.HandleFunc("POST "+PathMutes, h.withClient(h.withNotify(h.Mute)))
 	mux.HandleFunc("DELETE "+PathMutes+"/{id}", h.withClient(h.withNotify(h.Unmute)))
+	mux.HandleFunc("GET "+PathSubscriptions, h.withClient(h.withNotify(h.Subscriptions)))
+	mux.HandleFunc("POST "+PathSubscriptions, h.withClient(h.withNotify(h.Subscribe)))
+	mux.HandleFunc("DELETE "+PathSubscriptions+"/{id}", h.withClient(h.withNotify(h.Unsubscribe)))
 	mux.HandleFunc("GET "+PathChat, h.withClient(h.withNotify(h.Chat)))
 	mux.HandleFunc("PUT "+PathChatNotes, h.withClient(h.withNotify(h.SaveNotes)))
 }
@@ -118,6 +122,46 @@ func (h *Handler) Unmute(w http.ResponseWriter, r *http.Request, client string) 
 		return
 	}
 	writeJson(w, http.StatusOK, &dto.UnmuteRep{Unmuted: true})
+}
+
+// Subscriptions — GET /v1/subscriptions?conversation_id=: подписки беседы (пусто — приходит всё).
+func (h *Handler) Subscriptions(w http.ResponseWriter, r *http.Request, client string) {
+	subs, err := h.notify.Subscriptions(r.Context(), client, r.URL.Query().Get("conversation_id"))
+	if err != nil {
+		writeFail(w, r, client, err)
+		return
+	}
+	writeJson(w, http.StatusOK, &dto.SubscriptionsRep{Subscriptions: lo.Map(subs, dto.EncodeSubscription(h.loc))})
+}
+
+// Subscribe — POST /v1/subscriptions: подписать беседу.
+func (h *Handler) Subscribe(w http.ResponseWriter, r *http.Request, client string) {
+	req := &dto.SubscriptionReq{}
+	if !decode(w, r, req) {
+		return
+	}
+	sub, err := h.notify.Subscribe(r.Context(), client, req.ConversationId, &notifyModel.SubscriptionSpec{
+		Service: req.Service, Kind: req.Kind, MinSeverity: req.MinSeverity, Note: req.Note, By: req.User.UserName(),
+	})
+	if err != nil {
+		writeFail(w, r, client, err)
+		return
+	}
+	writeJson(w, http.StatusOK, new(dto.EncodeSubscription(h.loc)(sub, 0)))
+}
+
+// Unsubscribe — DELETE /v1/subscriptions/{id}?conversation_id=: убрать подписку.
+func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request, client string) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "id: expected positive integer")
+		return
+	}
+	if err = h.notify.Unsubscribe(r.Context(), client, r.URL.Query().Get("conversation_id"), id); err != nil {
+		writeFail(w, r, client, err)
+		return
+	}
+	writeJson(w, http.StatusOK, &dto.UnsubscribeRep{Unsubscribed: true})
 }
 
 // Chat — GET /v1/chat?conversation_id=: заметки беседы.

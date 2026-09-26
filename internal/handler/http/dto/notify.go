@@ -22,6 +22,9 @@ type NotificationRep struct {
 	Text         string    `json:"text"`
 	Investigated bool      `json:"investigated"`
 	MutedBy      *int64    `json:"muted_by"`
+	// NotSubscribed — у беседы есть подписки, и уведомление ни под одну не подходит: не
+	// показывать, но подтвердить
+	NotSubscribed bool `json:"not_subscribed"`
 }
 
 type NotificationsRep struct {
@@ -96,6 +99,7 @@ func EncodeNotification(loc *time.Location) func(item *notifyModel.FeedItem, _ i
 		if item.MutedBy != nil {
 			rep.MutedBy = &item.MutedBy.Id
 		}
+		rep.NotSubscribed = item.NotSubscribed
 		return rep
 	}
 }
@@ -125,4 +129,42 @@ func EncodeChat(v *chatModel.Chat, loc *time.Location) *ChatRep {
 // UserName — кто действовал: имя, иначе id.
 func (u UserReq) UserName() string {
 	return lo.CoalesceOrEmpty(u.Name, u.Id)
+}
+
+// SubscriptionReq — подписать беседу: присылать только подходящие уведомления (пустое поле —
+// любое). min_severity — info | warning | critical.
+type SubscriptionReq struct {
+	ConversationId string  `json:"conversation_id"`
+	Service        string  `json:"service,omitempty"`
+	Kind           string  `json:"kind,omitempty"`
+	MinSeverity    string  `json:"min_severity,omitempty"`
+	Note           string  `json:"note,omitempty"`
+	User           UserReq `json:"user,omitzero"`
+}
+
+type SubscriptionRep struct {
+	Id          int64     `json:"id"`
+	Service     string    `json:"service"`
+	Kind        string    `json:"kind"`
+	MinSeverity string    `json:"min_severity"`
+	Note        string    `json:"note,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	CreatedBy   string    `json:"created_by,omitempty"`
+}
+
+type SubscriptionsRep struct {
+	Subscriptions []SubscriptionRep `json:"subscriptions"`
+}
+
+type UnsubscribeRep struct {
+	Unsubscribed bool `json:"unsubscribed"`
+}
+
+func EncodeSubscription(loc *time.Location) func(v *notifyModel.Subscription, _ int) SubscriptionRep {
+	return func(v *notifyModel.Subscription, _ int) SubscriptionRep {
+		return SubscriptionRep{
+			Id: v.Id, Service: v.Service, Kind: v.Kind, MinSeverity: v.MinSeverity, Note: v.Note,
+			CreatedAt: v.CreatedAt.In(loc), CreatedBy: v.CreatedBy,
+		}
+	}
 }

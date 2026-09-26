@@ -34,4 +34,10 @@ type RepoI interface {
 	// DeleteMute — false: у беседы нет такого приглушения.
 	DeleteMute(ctx context.Context, client, conversationId string, id int64) (bool, error)
 	DeleteMutesExpiredBefore(ctx context.Context, before time.Time) (int64, error)
+
+	// CreateSubscription сохраняет подписку и проставляет Id.
+	CreateSubscription(ctx context.Context, s *model.Subscription) error
+	ListSubscriptions(ctx context.Context, client, conversationId string) ([]*model.Subscription, error)
+	// DeleteSubscription — false: у беседы нет такой подписки.
+	DeleteSubscription(ctx context.Context, client, conversationId string, id int64) (bool, error)
 }

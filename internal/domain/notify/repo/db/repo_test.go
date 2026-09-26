@@ -45,6 +45,7 @@ func TestLive(t *testing.T) {
 		_, _ = pool.Exec(ctx, "delete from signal where key like 'live:%'")
 		_, _ = pool.Exec(ctx, "delete from notification where signal_key like 'live:%'")
 		_, _ = pool.Exec(ctx, "delete from mute where client = 'live-test'")
+		_, _ = pool.Exec(ctx, "delete from subscription where client = 'live-test'")
 		_, _ = pool.Exec(ctx, "delete from chat where client = 'live-test'")
 	}
 	cleanup()
@@ -133,6 +134,22 @@ func TestLive(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, ok, "чужая беседа")
 		ok, err = repo.DeleteMute(ctx, "live-test", "-100", mute.Id)
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("subscriptions", func(t *testing.T) {
+		sub := &model.Subscription{Client: "live-test", ConversationId: "-100", Service: "caravan", MinSeverity: "warning", CreatedAt: now, CreatedBy: "Иван"}
+		require.NoError(t, repo.CreateSubscription(ctx, sub))
+		require.Positive(t, sub.Id)
+		subs, err := repo.ListSubscriptions(ctx, "live-test", "-100")
+		require.NoError(t, err)
+		require.Len(t, subs, 1)
+		assert.Equal(t, "warning", subs[0].MinSeverity)
+		ok, err := repo.DeleteSubscription(ctx, "live-test", "-200", sub.Id)
+		require.NoError(t, err)
+		assert.False(t, ok, "чужая беседа")
+		ok, err = repo.DeleteSubscription(ctx, "live-test", "-100", sub.Id)
 		require.NoError(t, err)
 		assert.True(t, ok)
 	})

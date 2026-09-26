@@ -228,3 +228,41 @@ func (r *Repo) DeleteMutesExpiredBefore(ctx context.Context, before time.Time) (
 	}
 	return tag.RowsAffected(), nil
 }
+
+const subscriptionColumns = `id, client, conversation_id, service, kind, min_severity, note, created_at, created_by`
+
+func (r *Repo) CreateSubscription(ctx context.Context, s *model.Subscription) error {
+	err := r.Con.QueryRow(ctx, `
+		insert into subscription (client, conversation_id, service, kind, min_severity, note, created_at, created_by)
+		values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+		s.Client, s.ConversationId, s.Service, s.Kind, s.MinSeverity, s.Note, s.CreatedAt, s.CreatedBy).Scan(&s.Id)
+	if err != nil {
+		return fmt.Errorf("Con.QueryRow: %w", err)
+	}
+	return nil
+}
+
+func (r *Repo) ListSubscriptions(ctx context.Context, client, conversationId string) ([]*model.Subscription, error) {
+	rows, err := r.Con.Query(ctx, `select `+subscriptionColumns+` from subscription where client = $1 and conversation_id = $2 order by id`,
+		client, conversationId)
+	if err != nil {
+		return nil, fmt.Errorf("Con.Query: %w", err)
+	}
+	items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*model.Subscription, error) {
+		s := &model.Subscription{}
+		err := row.Scan(&s.Id, &s.Client, &s.ConversationId, &s.Service, &s.Kind, &s.MinSeverity, &s.Note, &s.CreatedAt, &s.CreatedBy)
+		return s, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("CollectRows: %w", err)
+	}
+	return items, nil
+}
+
+func (r *Repo) DeleteSubscription(ctx context.Context, client, conversationId string, id int64) (bool, error) {
+	tag, err := r.Con.Exec(ctx, `delete from subscription where id = $1 and client = $2 and conversation_id = $3`, id, client, conversationId)
+	if err != nil {
+		return false, fmt.Errorf("Con.Exec: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}

@@ -39,4 +39,7 @@ type NotifyUsecaseI interface {
 	Mutes(ctx context.Context, client, conversationId string, limit int) ([]*notifyModel.MuteState, []*notifyModel.FeedItem, error)
 	Chat(ctx context.Context, client, conversationId string) (*chatModel.Chat, error)
 	SaveNotes(ctx context.Context, client, conversationId, notes, by string) error
+	Subscribe(ctx context.Context, client, conversationId string, spec *notifyModel.SubscriptionSpec) (*notifyModel.Subscription, error)
+	Unsubscribe(ctx context.Context, client, conversationId string, id int64) error
+	Subscriptions(ctx context.Context, client, conversationId string) ([]*notifyModel.Subscription, error)
 }
