@@ -14,14 +14,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/constant"
-	dialogModel "github.com/mechta-market/pulse_agent/internal/domain/dialog/model"
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	"github.com/mechta-market/pulse_agent/internal/infra/metrics"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	agentConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
-	"github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
+	"github.com/rendau/pulse_agent/internal/constant"
+	dialogModel "github.com/rendau/pulse_agent/internal/domain/dialog/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/infra/metrics"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	agentConstant "github.com/rendau/pulse_agent/internal/service/agent/service/constant"
+	"github.com/rendau/pulse_agent/internal/usecase/ask/model"
 )
 
 // maxQuestionChars — вопрос длиннее — ошибка клиента, а не повод жечь токены.

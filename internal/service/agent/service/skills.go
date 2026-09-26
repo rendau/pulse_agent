@@ -12,9 +12,9 @@ import (
 	"github.com/samber/lo"
 	"go.yaml.in/yaml/v3"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	localConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	localConstant "github.com/rendau/pulse_agent/internal/service/agent/service/constant"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
 )
 
 // ParseSkills — навыки из *.md: front matter (name, title, when, requires: chat) и текст

@@ -10,9 +10,9 @@ import (
 	"github.com/mechta-market/mobone/v2"
 	"github.com/samber/lo"
 
-	commonRepoPg "github.com/mechta-market/pulse_agent/internal/domain/common/repo/pg"
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	repoModel "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/db/model"
+	commonRepoPg "github.com/rendau/pulse_agent/internal/domain/common/repo/pg"
+	"github.com/rendau/pulse_agent/internal/domain/journal/model"
+	repoModel "github.com/rendau/pulse_agent/internal/domain/journal/repo/db/model"
 )
 
 const tableName = "journal"

@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	chatRepoDb "github.com/mechta-market/pulse_agent/internal/domain/chat/repo/db"
-	"github.com/mechta-market/pulse_agent/internal/domain/notify/model"
+	chatRepoDb "github.com/rendau/pulse_agent/internal/domain/chat/repo/db"
+	"github.com/rendau/pulse_agent/internal/domain/notify/model"
 )
 
 // TestLive — сигналы, уведомления, приглушения и контекст бесед в живом Postgres (база должна

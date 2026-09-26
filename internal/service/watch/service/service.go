@@ -18,10 +18,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/samber/lo"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	"github.com/mechta-market/pulse_agent/internal/infra/metrics"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	"github.com/rendau/pulse_agent/internal/infra/metrics"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
 )
 
 const (

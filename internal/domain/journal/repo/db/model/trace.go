@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	domainModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	domainModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
 )
 
 // traceJSON — repo-локальная DTO формата хранения jsonb-колонки trace (вызов инструмента).

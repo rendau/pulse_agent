@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gonum.org/v1/plot"
 
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
 )
 
 // CHART_OUT_DIR — куда сохранить картинки тестов, чтобы посмотреть глазами.

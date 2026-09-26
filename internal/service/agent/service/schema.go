@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/mechta-market/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/errs"
 )
 
 // maxSchemaDepth — глубже объекты схемы клиента не разбираются (у провайдера свой предел — 5

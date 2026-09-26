@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mechta-market/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/errs"
 )
 
 // Parse — срок: 30m, 2h, 1d, 7d; пусто — 0 (без срока). Ошибки: errs.InvalidRequest.

@@ -5,8 +5,8 @@ import (
 
 	"github.com/samber/lo"
 
-	chatModel "github.com/mechta-market/pulse_agent/internal/domain/chat/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
+	chatModel "github.com/rendau/pulse_agent/internal/domain/chat/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 )
 
 // NotificationRep — уведомление наблюдателя. MutedBy — id приглушения беседы, под которое оно

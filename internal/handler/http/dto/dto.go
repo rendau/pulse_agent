@@ -9,9 +9,9 @@ import (
 
 	"github.com/samber/lo"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
-	askModel "github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
+	askModel "github.com/rendau/pulse_agent/internal/usecase/ask/model"
 )
 
 // режимы графиков в ответе (AskReq.Charts)

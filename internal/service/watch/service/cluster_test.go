@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 func TestLogBaseline(t *testing.T) {

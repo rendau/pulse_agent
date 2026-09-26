@@ -6,8 +6,8 @@ import (
 
 	"github.com/samber/lo"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/handler/http/dto"
 )
 
 // ручки разработчика (DEBUG_TOKEN): мониторинг и прогон эталонных вопросов

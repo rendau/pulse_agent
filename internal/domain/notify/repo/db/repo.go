@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	commonRepoPg "github.com/mechta-market/pulse_agent/internal/domain/common/repo/pg"
-	"github.com/mechta-market/pulse_agent/internal/domain/notify/model"
+	commonRepoPg "github.com/rendau/pulse_agent/internal/domain/common/repo/pg"
+	"github.com/rendau/pulse_agent/internal/domain/notify/model"
 )
 
 type Repo struct {

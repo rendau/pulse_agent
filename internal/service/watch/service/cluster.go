@@ -10,7 +10,7 @@ import (
 
 	"github.com/samber/lo"
 
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 )
 
 const (

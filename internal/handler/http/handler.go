@@ -17,9 +17,9 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
-	askModel "github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/handler/http/dto"
+	askModel "github.com/rendau/pulse_agent/internal/usecase/ask/model"
 )
 
 // пути API

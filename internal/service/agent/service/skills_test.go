@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
-	"github.com/mechta-market/pulse_agent/skills"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
+	"github.com/rendau/pulse_agent/skills"
 )
 
 // Навыки из образа разбираются: имя совпадает с файлом, есть название и «когда».

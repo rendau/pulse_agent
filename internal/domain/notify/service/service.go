@@ -8,8 +8,8 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	"github.com/mechta-market/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/domain/notify/model"
+	"github.com/rendau/pulse_agent/internal/errs"
 )
 
 // maxMutedScan — сколько уведомлений просматривать, считая приглушённые.

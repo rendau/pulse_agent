@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/dialog/model"
+	"github.com/rendau/pulse_agent/internal/domain/dialog/model"
 )
 
 // Config — правила истории: сколько пар держать и через сколько тишины забывать.

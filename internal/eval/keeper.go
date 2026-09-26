@@ -9,7 +9,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/errs"
 )
 
 // Keeper — прогоны на стороне сервиса: набор и эталон вшиты в образ, одновременно идёт один

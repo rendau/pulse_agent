@@ -6,8 +6,8 @@ import (
 
 	"github.com/samber/lo"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 )
 
 // EvalReq — прогон эталонных вопросов на стороне агента.

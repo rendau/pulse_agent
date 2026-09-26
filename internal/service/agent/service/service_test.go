@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	localConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
-	piiServiceP "github.com/mechta-market/pulse_agent/internal/service/pii/service"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	localConstant "github.com/rendau/pulse_agent/internal/service/agent/service/constant"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
+	piiServiceP "github.com/rendau/pulse_agent/internal/service/pii/service"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 var testPii = piiServiceP.New(piiServiceP.Config{Key: []byte("test")})

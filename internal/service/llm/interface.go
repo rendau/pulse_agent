@@ -3,7 +3,7 @@ package llm
 import (
 	"context"
 
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
 )
 
 // Provider — адаптер LLM-провайдера. Реализации: internal/service/llm/<provider>/service,

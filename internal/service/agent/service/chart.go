@@ -12,9 +12,9 @@ import (
 
 	"github.com/samber/lo"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	localConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	localConstant "github.com/rendau/pulse_agent/internal/service/agent/service/constant"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
 )
 
 // queryMetricsTool — инструмент pulse, на результаты которого ссылается render_chart.

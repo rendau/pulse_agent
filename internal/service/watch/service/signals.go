@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 )
 
 // типы событий get_timeline, из которых наблюдатель делает сигналы

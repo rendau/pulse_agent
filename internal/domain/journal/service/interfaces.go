@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/domain/journal/model"
 )
 
 type RepoI interface {

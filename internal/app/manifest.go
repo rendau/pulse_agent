@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/mechta-market/pulse_agent/internal/constant"
-	"github.com/mechta-market/pulse_agent/internal/infra/pulsekit"
-	usecaseMonitorP "github.com/mechta-market/pulse_agent/internal/usecase/monitor"
+	"github.com/rendau/pulse_agent/internal/constant"
+	"github.com/rendau/pulse_agent/internal/infra/pulsekit"
+	usecaseMonitorP "github.com/rendau/pulse_agent/internal/usecase/monitor"
 )
 
 // манифест агента по стандарту pulse (pulse/docs/service-manifest.md)
@@ -20,7 +20,7 @@ func newPulsekit() *pulsekit.Kit {
 		Aliases:     []string{"pulse-agent", "агент pulse", "агент пульса"},
 		OwnerTeam:   "platform",
 		Criticality: "low",
-		RepoUrl:     "https://github.com/mechta-market/pulse_agent",
+		RepoUrl:     "https://github.com/rendau/pulse_agent",
 		Domain: &pulsekit.Domain{
 			Responsibilities: []string{
 				"Отвечает на вопросы об инфраструктуре: LLM с инструментами pulse, графики",

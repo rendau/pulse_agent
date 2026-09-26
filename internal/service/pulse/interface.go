@@ -3,7 +3,7 @@ package pulse
 import (
 	"context"
 
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 // Pulse — MCP-клиент сервера pulse.

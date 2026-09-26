@@ -301,7 +301,7 @@ domain service → repo
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:
-  история бесед в памяти). Образ `ghcr.io/mechta-market/pulse_agent:latest` собирает CI на push в
+  история бесед в памяти). Образ `ghcr.io/rendau/pulse_agent:latest` собирает CI на push в
   master, keel перекатывает под.
 - Внутри кластера: `http://pulse-agent.default/v1/ask`; наружу — через ruto.
 

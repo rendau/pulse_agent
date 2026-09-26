@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/repo/mem"
+	"github.com/rendau/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/domain/journal/repo/mem"
 )
 
 func TestJournal(t *testing.T) {

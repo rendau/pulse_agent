@@ -25,7 +25,7 @@ import (
 	"gonum.org/v1/plot/vg/draw"
 	"gonum.org/v1/plot/vg/vgimg"
 
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
 )
 
 const (

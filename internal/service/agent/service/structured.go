@@ -8,7 +8,7 @@ import (
 
 	"github.com/samber/lo"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
 )
 
 // structuredRep — JSON ответа модели по constant.ResultSchema.

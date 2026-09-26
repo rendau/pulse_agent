@@ -12,10 +12,10 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	localConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	localConstant "github.com/rendau/pulse_agent/internal/service/agent/service/constant"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 // finalReserve — время, которое остаётся на финальный ответ модели: после

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mechta-market/pulse_agent/internal/config"
-	handlerHttpP "github.com/mechta-market/pulse_agent/internal/handler/http"
+	"github.com/rendau/pulse_agent/internal/config"
+	handlerHttpP "github.com/rendau/pulse_agent/internal/handler/http"
 )
 
 // HttpServerCreate строит сервер API. Разбор идёт до AGENT_TIMEOUT, прогон эталонов — до

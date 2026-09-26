@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse_agent/evals"
-	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
+	"github.com/rendau/pulse_agent/evals"
+	"github.com/rendau/pulse_agent/internal/handler/http/dto"
 )
 
 func TestLoad_RealSuite(t *testing.T) {

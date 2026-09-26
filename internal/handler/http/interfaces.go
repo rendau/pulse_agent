@@ -3,12 +3,12 @@ package http
 import (
 	"context"
 
-	chatModel "github.com/mechta-market/pulse_agent/internal/domain/chat/model"
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	"github.com/mechta-market/pulse_agent/internal/eval"
-	askModel "github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
-	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
+	chatModel "github.com/rendau/pulse_agent/internal/domain/chat/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	"github.com/rendau/pulse_agent/internal/eval"
+	askModel "github.com/rendau/pulse_agent/internal/usecase/ask/model"
+	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 )
 
 type AskUsecaseI interface {

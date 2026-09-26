@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 )
 
 // chatI — заметки беседы (доменный сервис chat).

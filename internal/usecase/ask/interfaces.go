@@ -3,10 +3,10 @@ package ask
 import (
 	"context"
 
-	chatModel "github.com/mechta-market/pulse_agent/internal/domain/chat/model"
-	dialogModel "github.com/mechta-market/pulse_agent/internal/domain/dialog/model"
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
+	chatModel "github.com/rendau/pulse_agent/internal/domain/chat/model"
+	dialogModel "github.com/rendau/pulse_agent/internal/domain/dialog/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
 )
 
 type DialogServiceI interface {

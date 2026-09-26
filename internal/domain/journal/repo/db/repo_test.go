@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/domain/journal/model"
 )
 
 // TestLive — журнал в живом Postgres (база должна существовать, миграции применяются тестом):

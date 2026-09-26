@@ -13,8 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/constant"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	"github.com/rendau/pulse_agent/internal/constant"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 const connectTimeout = 15 * time.Second

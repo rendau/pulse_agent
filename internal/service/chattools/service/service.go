@@ -12,12 +12,12 @@ import (
 
 	"github.com/samber/lo"
 
-	chatModel "github.com/mechta-market/pulse_agent/internal/domain/chat/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
-	"github.com/mechta-market/pulse_agent/internal/util/duration"
+	chatModel "github.com/rendau/pulse_agent/internal/domain/chat/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
+	"github.com/rendau/pulse_agent/internal/util/duration"
 )
 
 // имена инструментов

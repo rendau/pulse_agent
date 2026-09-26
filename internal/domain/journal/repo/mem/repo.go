@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/domain/journal/model"
 )
 
 type Repo struct {

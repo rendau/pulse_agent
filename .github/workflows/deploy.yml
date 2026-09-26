@@ -6,12 +6,19 @@ on:
 jobs:
   build:
     name: Build and deploy
-    runs-on: yc-arc
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     env:
-      OWNER: mechta-market
+      OWNER: rendau
       IMAGE: pulse_agent:latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
       - uses: docker/login-action@v3
         with:

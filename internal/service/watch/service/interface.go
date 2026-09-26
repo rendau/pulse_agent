@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 type pulseI interface {

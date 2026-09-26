@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	chatModel "github.com/mechta-market/pulse_agent/internal/domain/chat/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	"github.com/mechta-market/pulse_agent/internal/errs"
+	chatModel "github.com/rendau/pulse_agent/internal/domain/chat/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	"github.com/rendau/pulse_agent/internal/errs"
 )
 
 const (

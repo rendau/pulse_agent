@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 var now = time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)

@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
 )
 
 // Agent — агентный цикл: вопрос → шаги модели с инструментами pulse → ответ.

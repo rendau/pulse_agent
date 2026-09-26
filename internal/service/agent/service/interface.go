@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
 type llmI interface {

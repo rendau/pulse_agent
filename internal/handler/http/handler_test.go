@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	"github.com/mechta-market/pulse_agent/internal/eval"
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
-	askModel "github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
-	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	"github.com/rendau/pulse_agent/internal/eval"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
+	askModel "github.com/rendau/pulse_agent/internal/usecase/ask/model"
+	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 )
 
 type fakeAsk struct {

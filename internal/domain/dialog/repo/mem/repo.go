@@ -7,7 +7,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/dialog/model"
+	"github.com/rendau/pulse_agent/internal/domain/dialog/model"
 )
 
 type Repo struct {

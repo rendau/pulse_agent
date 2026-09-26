@@ -5,9 +5,9 @@ BUILD_PATH = cmd/build
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
 BUILT_AT ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS = -X github.com/mechta-market/pulse_agent/internal/constant.Version=$(VERSION) \
-	-X github.com/mechta-market/pulse_agent/internal/constant.Commit=$(COMMIT) \
-	-X github.com/mechta-market/pulse_agent/internal/constant.BuiltAt=$(BUILT_AT)
+LDFLAGS = -X github.com/rendau/pulse_agent/internal/constant.Version=$(VERSION) \
+	-X github.com/rendau/pulse_agent/internal/constant.Commit=$(COMMIT) \
+	-X github.com/rendau/pulse_agent/internal/constant.BuiltAt=$(BUILT_AT)
 
 .SILENT:
 

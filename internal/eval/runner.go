@@ -12,7 +12,7 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
+	"github.com/rendau/pulse_agent/internal/handler/http/dto"
 )
 
 // AskFunc — задать вопрос агенту: по HTTP (HttpAsk — прогон с машины разработчика) или прямо

@@ -2,7 +2,7 @@
 
 pulse_agent отвечает на вопросы об инфраструктуре: состояние сервисов и кластера, ошибки,
 алерты, что и когда менялось, следы заказа или клиента в логах. Данные берёт живьём из
-[pulse](https://github.com/mechta-market/pulse) (Kubernetes, Prometheus, Loki, Alertmanager,
+[pulse](https://github.com/rendau/pulse) (Kubernetes, Prometheus, Loki, Alertmanager,
 GitHub, kusec, ruto) через LLM с инструментами. Ответ синхронный: от нескольких секунд до
 `AGENT_TIMEOUT` (5 минут; обычно 10–30 с, поиск по номеру заказа — до минуты).
 

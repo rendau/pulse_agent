@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mechta-market/pulse_agent/internal/domain/dialog/repo/mem"
+	"github.com/rendau/pulse_agent/internal/domain/dialog/repo/mem"
 )
 
 func TestDialog(t *testing.T) {

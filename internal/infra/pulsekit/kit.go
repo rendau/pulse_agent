@@ -1,4 +1,4 @@
-// Package pulsekit — манифест сервиса для pulse (стандарт — github.com/mechta-market/pulse,
+// Package pulsekit — манифест сервиса для pulse (стандарт — github.com/rendau/pulse,
 // docs/service-manifest.md). Эталон пакета — gotemplate (internal/infra/pulsekit): в сервис он
 // копируется целиком и на месте не правится. Сервис объявляет
 // о себе сведения, зависимости (одной строкой рядом с созданием клиента), свои метрики,

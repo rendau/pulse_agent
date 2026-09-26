@@ -1,6 +1,6 @@
 # pulse_agent
 
-Агент над [pulse](https://github.com/mechta-market/pulse): вопрос об инфраструктуре → разбор
+Агент над [pulse](https://github.com/rendau/pulse): вопрос об инфраструктуре → разбор
 LLM с инструментами pulse → ответ текстом и/или по полям (JSON), с графиками. Один агент для
 всех систем: Telegram-бот, service-desk, разбор алертов.
 

@@ -21,9 +21,9 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/constant"
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	"github.com/rendau/pulse_agent/internal/constant"
+	"github.com/rendau/pulse_agent/internal/errs"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
 )
 
 // Config — параметры адаптера.

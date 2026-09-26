@@ -1,7 +1,7 @@
 package db
 
 import (
-	"github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/domain/journal/model"
 )
 
 func (r *Repo) getConditions(f model.Filter) (map[string]any, map[string][]any) {

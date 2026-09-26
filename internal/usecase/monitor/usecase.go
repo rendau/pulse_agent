@@ -11,10 +11,10 @@ import (
 
 	"github.com/samber/lo"
 
-	journalModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
-	"github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
+	journalModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
+	"github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 )
 
 const (

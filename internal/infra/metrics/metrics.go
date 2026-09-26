@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/mechta-market/pulse_agent/internal/constant"
+	"github.com/rendau/pulse_agent/internal/constant"
 )
 
 var Enabled bool

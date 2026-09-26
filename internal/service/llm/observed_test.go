@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mechta-market/pulse_agent/internal/errs"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	"github.com/rendau/pulse_agent/internal/errs"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
 )
 
 type stubProvider struct {

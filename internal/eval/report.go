@@ -10,7 +10,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
+	"github.com/rendau/pulse_agent/internal/handler/http/dto"
 )
 
 // Report — итог прогона (JSON: сравнивается со следующим прогоном).

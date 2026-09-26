@@ -1,8 +1,8 @@
 package model
 
 import (
-	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	agentModel "github.com/rendau/pulse_agent/internal/service/agent/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
 )
 
 // Question — вопрос системы-клиента.

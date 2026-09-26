@@ -3,8 +3,8 @@ package model
 import (
 	"time"
 
-	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
-	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
+	llmModel "github.com/rendau/pulse_agent/internal/service/llm/model"
 )
 
 // причины, по которым разбор закончен раньше, чем модель решила сама

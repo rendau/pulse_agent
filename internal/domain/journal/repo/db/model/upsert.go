@@ -7,7 +7,7 @@ import (
 
 	"github.com/samber/lo"
 
-	domainModel "github.com/mechta-market/pulse_agent/internal/domain/journal/model"
+	domainModel "github.com/rendau/pulse_agent/internal/domain/journal/model"
 )
 
 // Upsert — новая запись журнала (записи не меняются: только Create).

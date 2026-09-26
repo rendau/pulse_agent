@@ -18,8 +18,8 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/mechta-market/pulse_agent/internal/eval"
-	"github.com/mechta-market/pulse_agent/internal/infra/httpx"
+	"github.com/rendau/pulse_agent/internal/eval"
+	"github.com/rendau/pulse_agent/internal/infra/httpx"
 )
 
 func main() {

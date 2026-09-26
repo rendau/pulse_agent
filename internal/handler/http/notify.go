@@ -7,9 +7,9 @@ import (
 
 	"github.com/samber/lo"
 
-	notifyModel "github.com/mechta-market/pulse_agent/internal/domain/notify/model"
-	"github.com/mechta-market/pulse_agent/internal/handler/http/dto"
-	"github.com/mechta-market/pulse_agent/internal/util/duration"
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
+	"github.com/rendau/pulse_agent/internal/handler/http/dto"
+	"github.com/rendau/pulse_agent/internal/util/duration"
 )
 
 // пути ленты уведомлений и контекста беседы
