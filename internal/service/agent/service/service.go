@@ -33,11 +33,12 @@ type Service struct {
 	llm   llmI
 	pulse pulseI
 	chart chartI // nil — без графиков
+	pii   piiI
 	now   func() time.Time
 }
 
-func New(cfg Config, llm llmI, pulse pulseI, chart chartI) *Service {
-	return &Service{cfg: cfg, llm: llm, pulse: pulse, chart: chart, now: time.Now}
+func New(cfg Config, llm llmI, pulse pulseI, chart chartI, pii piiI) *Service {
+	return &Service{cfg: cfg, llm: llm, pulse: pulse, chart: chart, pii: pii, now: time.Now}
 }
 
 func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Result, error) {
@@ -62,7 +63,7 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 
 	llmReq := &llmModel.Request{
 		System:   localConstant.SystemPrompt(catalog.Instructions, req.Format, clientSchema != nil, s.chart != nil && req.Charts),
-		Messages: buildMessages(req, started),
+		Messages: buildMessages(req, started, s.pii.Mask),
 		Tools:    lo.Map(catalog.Tools, encodeTool),
 	}
 	switch {
@@ -94,7 +95,9 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 		result.Usage.Add(resp.Usage)
 
 		if len(resp.ToolCalls) == 0 || llmReq.NoTools {
-			result.Answer = strings.TrimSpace(resp.Text)
+			// модель пишет токенами; клиенту — настоящие значения
+			result.ModelAnswer = strings.TrimSpace(resp.Text)
+			result.Answer = s.pii.Reveal(result.ModelAnswer)
 			if resp.Incomplete != "" && result.Incomplete == "" {
 				result.Incomplete = agentModel.IncompleteOutput
 			}
@@ -200,11 +203,12 @@ func (s *Service) callTools(ctx context.Context, step int, calls []llmModel.Tool
 	return traces
 }
 
-// callChart — render_chart: график рисует сам бот, pulse не нужен.
+// callChart — render_chart: график рисует сам агент, pulse не нужен. Картинку видит человек —
+// подписи с настоящими значениями.
 func (s *Service) callChart(step int, call llmModel.ToolCall, prior []agentModel.ToolTrace) agentModel.ToolTrace {
 	started := s.now()
 
-	chart, output, err := s.renderChart(call.Arguments, prior)
+	chart, output, err := s.renderChart(s.pii.Reveal(call.Arguments), prior)
 	trace := agentModel.ToolTrace{Step: step, Name: call.Name, Arguments: call.Arguments, Duration: s.now().Sub(started)}
 	metricToolCallDuration.WithLabelValues(call.Name).Observe(trace.Duration.Seconds())
 
@@ -237,22 +241,24 @@ func collectCharts(charts []agentModel.Chart, traces []agentModel.ToolTrace) []a
 	return charts
 }
 
+// callTool — вызов pulse: токены в аргументах — настоящими значениями (pulse ищет сам номер),
+// ответ — модели токенами. В ходе разбора — аргументы и ответ, как их видела модель.
 func (s *Service) callTool(ctx context.Context, step int, call llmModel.ToolCall) agentModel.ToolTrace {
 	started := s.now()
 
-	res, err := s.pulse.Call(ctx, call.Name, call.Arguments)
+	res, err := s.pulse.Call(ctx, call.Name, s.pii.RevealArgs(call.Arguments))
 	trace := agentModel.ToolTrace{Step: step, Name: call.Name, Arguments: call.Arguments, Duration: s.now().Sub(started)}
 	metricToolCallDuration.WithLabelValues(call.Name).Observe(trace.Duration.Seconds())
 
 	switch {
 	case err != nil:
-		trace.Status, trace.Output = agentModel.ToolStatusError, localConstant.ToolErrorPrefix+err.Error()
-		slog.Warn("pulse tool call failed", "tool", call.Name, "error", err)
+		trace.Status, trace.Output = agentModel.ToolStatusError, localConstant.ToolErrorPrefix+s.pii.Mask(err.Error())
+		slog.Warn("pulse tool call failed", "tool", call.Name, "error", trace.Output)
 	case res.IsError:
-		trace.Status, trace.Output = agentModel.ToolStatusToolError, localConstant.ToolErrorPrefix+res.Text
-		slog.Debug("pulse tool error", "tool", call.Name, "arguments", call.Arguments, "text", res.Text)
+		trace.Status, trace.Output = agentModel.ToolStatusToolError, localConstant.ToolErrorPrefix+s.pii.Mask(res.Text)
+		slog.Debug("pulse tool error", "tool", call.Name, "arguments", call.Arguments, "text", trace.Output)
 	default:
-		trace.Status, trace.Output = agentModel.ToolStatusOk, res.Text
+		trace.Status, trace.Output = agentModel.ToolStatusOk, s.pii.MaskToolOutput(res.Text)
 		slog.Debug("pulse tool call", "tool", call.Name, "arguments", call.Arguments, "bytes", strconv.Itoa(len(res.Text)))
 	}
 	metricToolCalls.WithLabelValues(call.Name, trace.Status).Inc()
@@ -267,17 +273,18 @@ func toolResults(calls []llmModel.ToolCall, traces []agentModel.ToolTrace) []llm
 	})
 }
 
-func buildMessages(req *agentModel.Req, now time.Time) []llmModel.Message {
+// buildMessages — история и вопрос; персональные данные в них — токенами (mask).
+func buildMessages(req *agentModel.Req, now time.Time, mask func(string) string) []llmModel.Message {
 	messages := lo.FlatMap(req.History, func(t agentModel.Turn, _ int) []llmModel.Message {
 		return []llmModel.Message{
-			{Role: llmModel.RoleUser, Text: t.Question},
-			{Role: llmModel.RoleAssistant, Text: t.Answer},
+			{Role: llmModel.RoleUser, Text: mask(t.Question)},
+			{Role: llmModel.RoleAssistant, Text: mask(t.Answer)},
 		}
 	})
 
 	return append(messages, llmModel.Message{
 		Role: llmModel.RoleUser,
-		Text: fmt.Sprintf(localConstant.QuestionTemplate, now.UTC().Format(time.RFC3339), req.Question),
+		Text: fmt.Sprintf(localConstant.QuestionTemplate, now.UTC().Format(time.RFC3339), mask(req.Question)),
 	})
 }
 

@@ -42,8 +42,12 @@ type Req struct {
 
 // Result — итог разбора.
 type Result struct {
-	// Answer — текст ответа; в формате json — собран из Structured
+	// Answer — текст ответа с настоящими значениями; в формате json — собран из Structured
 	Answer string
+
+	// ModelAnswer — ответ, как его написала модель: персональные данные — токенами (журнал,
+	// история беседы)
+	ModelAnswer string
 
 	// Structured — ответ по полям схемы по умолчанию (формат json без своей схемы)
 	Structured *Structured
@@ -103,9 +107,9 @@ type Fact struct {
 type ToolTrace struct {
 	Step      int // шаг модели, запросивший вызов (с 1)
 	Name      string
-	Arguments string
+	Arguments string // как их написала модель (токенами)
 	Status    string // ToolStatus*
-	Output    string // что ушло модели
+	Output    string // что ушло модели (токенами)
 	Duration  time.Duration
 	Chart     *Chart // построенный график (render_chart)
 }

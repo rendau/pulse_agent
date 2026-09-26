@@ -48,6 +48,12 @@ var Conf = struct {
 	PulseMcpUrl   string `env:"PULSE_MCP_URL,required"`
 	PulseMcpToken string `env:"PULSE_MCP_TOKEN"`
 
+	// персональные данные токенами (модель видит pii:<вид>:<код>, клиенты — настоящие значения):
+	// ключ HMAC (секрет) — один телефон даёт один токен и между рестартами; пусто — случайный
+	// на время жизни процесса. Код страны — для приведения телефонов (8… → 7…)
+	PiiTokenKey         string `env:"PII_TOKEN_KEY"`
+	PiiPhoneCountryCode string `env:"PII_PHONE_COUNTRY_CODE" envDefault:"7"`
+
 	// ограничители разбора
 	AgentMaxToolCalls int           `env:"AGENT_MAX_TOOL_CALLS" envDefault:"20"`
 	AgentTimeout      time.Duration `env:"AGENT_TIMEOUT" envDefault:"5m"`

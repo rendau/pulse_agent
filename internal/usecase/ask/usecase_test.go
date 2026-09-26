@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +16,7 @@ import (
 	journalServiceP "github.com/mechta-market/pulse_agent/internal/domain/journal/service"
 	"github.com/mechta-market/pulse_agent/internal/errs"
 	agentModel "github.com/mechta-market/pulse_agent/internal/service/agent/model"
+	piiServiceP "github.com/mechta-market/pulse_agent/internal/service/pii/service"
 	"github.com/mechta-market/pulse_agent/internal/usecase/ask/model"
 )
 
@@ -31,12 +33,15 @@ func (f *fakeAgent) Run(_ context.Context, req *agentModel.Req) (*agentModel.Res
 		f.started <- struct{}{}
 		<-f.release
 	}
-	return f.result, nil
+	// модель без персональных данных пишет то же, что уходит клиенту
+	result := *f.result
+	result.ModelAnswer = lo.CoalesceOrEmpty(result.ModelAnswer, result.Answer)
+	return &result, nil
 }
 
 func newUsecase(agent *fakeAgent) *Usecase {
 	dialog := dialogServiceP.New(dialogServiceP.Config{MaxTurns: 10, Ttl: time.Hour}, mem.New())
-	return New(dialog, journalServiceP.New(journalMem.New(100)), agent)
+	return New(dialog, journalServiceP.New(journalMem.New(100)), agent, piiServiceP.New(piiServiceP.Config{Key: []byte("test")}))
 }
 
 func TestAsk_History(t *testing.T) {
@@ -130,9 +135,9 @@ func TestAsk_Journal(t *testing.T) {
 	journal := journalServiceP.New(journalMem.New(10))
 	agent := &fakeAgent{result: &agentModel.Result{Answer: "ok", Incomplete: "timeout", ToolCalls: 1,
 		Trace: []agentModel.ToolTrace{{Step: 1, Name: "query_logs", Arguments: `{"pattern":"1"}`, Status: "ok", Output: "{}", Duration: time.Second}}}}
-	uc := New(dialogServiceP.New(dialogServiceP.Config{}, mem.New()), journal, agent)
+	uc := New(dialogServiceP.New(dialogServiceP.Config{}, mem.New()), journal, agent, piiServiceP.New(piiServiceP.Config{Key: []byte("test")}))
 
-	_, err := uc.Ask(context.Background(), &model.Question{Client: "bot", User: model.User{Id: "7", Name: "Иван"}, Text: "что по заказу 1?"})
+	_, err := uc.Ask(context.Background(), &model.Question{Client: "bot", User: model.User{Id: "7", Name: "Иван"}, Text: "что по клиенту +7 701 123 45 67?"})
 	require.NoError(t, err)
 	_, err = uc.Ask(context.Background(), &model.Question{Client: "bot", Text: " "})
 	require.Error(t, err)
@@ -152,5 +157,6 @@ func TestAsk_Journal(t *testing.T) {
 	require.NotNil(t, full)
 	assert.Equal(t, "Иван", full.UserName)
 	assert.Equal(t, "ok", full.Answer)
+	assert.Regexp(t, `^что по клиенту pii:phone:[a-p]{12}\?$`, full.Question, "вопрос в журнале — токенами")
 	assert.Equal(t, []journalModel.ToolCall{{Step: 1, Name: "query_logs", Arguments: `{"pattern":"1"}`, Status: "ok", Output: "{}", Duration: time.Second}}, full.Trace)
 }

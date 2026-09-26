@@ -18,6 +18,15 @@ type chartI interface {
 	Render(spec *chartModel.Spec) ([]byte, error)
 }
 
+// piiI — персональные данные токенами на границе с моделью: модель видит pii:<вид>:<код>,
+// настоящие значения — только запросы к pulse и итоговый ответ.
+type piiI interface {
+	Mask(text string) string
+	MaskToolOutput(text string) string
+	RevealArgs(args string) string
+	Reveal(text string) string
+}
+
 type pulseI interface {
 	Catalog(ctx context.Context) (*pulseModel.Catalog, error)
 	Call(ctx context.Context, name string, arguments string) (*pulseModel.CallResult, error)

@@ -31,6 +31,7 @@ import (
 	serviceChartServiceP "github.com/mechta-market/pulse_agent/internal/service/chart/service"
 	"github.com/mechta-market/pulse_agent/internal/service/llm"
 	serviceLlmOpenaiServiceP "github.com/mechta-market/pulse_agent/internal/service/llm/openai/service"
+	servicePiiServiceP "github.com/mechta-market/pulse_agent/internal/service/pii/service"
 	servicePulseServiceP "github.com/mechta-market/pulse_agent/internal/service/pulse/service"
 	"github.com/mechta-market/pulse_agent/internal/service/retention"
 	serviceRetentionServiceP "github.com/mechta-market/pulse_agent/internal/service/retention/service"
@@ -111,13 +112,19 @@ func (a *App) Init() {
 	// chart
 	chartService := serviceChartServiceP.New(serviceChartServiceP.Config{Location: location, Theme: config.Conf.ChartTheme})
 
+	// pii (персональные данные токенами на границе с моделью)
+	piiService := servicePiiServiceP.New(servicePiiServiceP.Config{
+		Key:         []byte(config.Conf.PiiTokenKey),
+		CountryCode: config.Conf.PiiPhoneCountryCode,
+	})
+
 	// agent
 	agentService := serviceAgentServiceP.New(
 		serviceAgentServiceP.Config{
 			MaxToolCalls: config.Conf.AgentMaxToolCalls,
 			Timeout:      config.Conf.AgentTimeout,
 		},
-		llmProvider, a.pulse, chartService,
+		llmProvider, a.pulse, chartService, piiService,
 	)
 
 	// dialog
@@ -142,7 +149,7 @@ func (a *App) Init() {
 	}
 
 	// ask
-	askUsecase := usecaseAskP.New(dialogService, journalService, agentService)
+	askUsecase := usecaseAskP.New(dialogService, journalService, agentService, piiService)
 
 	// eval (эталонные вопросы, вшитые в образ)
 	evalKeeper, err := eval.NewKeeper(evals.Cases, evals.Baseline, config.Conf.EvalParallel)

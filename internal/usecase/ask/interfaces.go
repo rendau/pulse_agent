@@ -18,6 +18,11 @@ type JournalServiceI interface {
 	Append(ctx context.Context, e *journalModel.Entry) error
 }
 
+// PiiI — персональные данные токенами: журнал и история беседы хранят то, что видела модель.
+type PiiI interface {
+	Mask(text string) string
+}
+
 type AgentI interface {
 	Run(ctx context.Context, req *agentModel.Req) (*agentModel.Result, error)
 }

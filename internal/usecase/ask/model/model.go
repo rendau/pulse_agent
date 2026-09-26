@@ -30,8 +30,10 @@ type User struct {
 // Answer — ответ. Incomplete — почему разбор закончен досрочно
 // (agent/model.Incomplete*); пусто — ответ полный.
 type Answer struct {
-	Text       string
-	Structured *agentModel.Structured
+	Text string
+	// ModelAnswer — ответ, как его написала модель (персональные данные токенами): журнал
+	ModelAnswer string
+	Structured  *agentModel.Structured
 	// Json — ответ в JSON (формат json или схема клиента); nil — текстовый формат
 	Json       []byte
 	Incomplete string

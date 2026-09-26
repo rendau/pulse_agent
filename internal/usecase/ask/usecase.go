@@ -49,13 +49,14 @@ type Usecase struct {
 	dialog  DialogServiceI
 	journal JournalServiceI
 	agent   AgentI
+	pii     PiiI
 
 	mu   sync.Mutex
 	busy map[string]struct{} // беседы, где идёт разбор
 }
 
-func New(dialog DialogServiceI, journal JournalServiceI, agent AgentI) *Usecase {
-	return &Usecase{dialog: dialog, journal: journal, agent: agent, busy: map[string]struct{}{}}
+func New(dialog DialogServiceI, journal JournalServiceI, agent AgentI, pii PiiI) *Usecase {
+	return &Usecase{dialog: dialog, journal: journal, agent: agent, pii: pii, busy: map[string]struct{}{}}
 }
 
 // Ask разбирает вопрос и пишет его в журнал (мониторинг). Ошибки: errs.InvalidRequest —
@@ -146,31 +147,34 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 		"charts", len(result.Charts),
 	)
 
-	// пустой ответ в историю не кладём: он только собьёт следующий вопрос
-	if conversation != "" && result.Answer != "" {
-		if err = u.dialog.Append(ctx, conversation, text, result.Answer); err != nil {
+	// пустой ответ в историю не кладём: он только собьёт следующий вопрос. В истории — то, что
+	// видела модель (токены): иначе имя из ответа ушло бы модели со следующим вопросом
+	if conversation != "" && result.ModelAnswer != "" {
+		if err = u.dialog.Append(ctx, conversation, u.pii.Mask(text), result.ModelAnswer); err != nil {
 			return nil, fmt.Errorf("dialog.Append: %w", err)
 		}
 	}
 
 	return &model.Answer{
-		Text:       result.Answer,
-		Structured: result.Structured,
-		Json:       result.Json,
-		Incomplete: result.Incomplete,
-		Charts:     result.Charts,
-		Steps:      result.Steps,
-		ToolCalls:  result.ToolCalls,
-		Usage:      result.Usage,
-		Trace:      result.Trace,
+		Text:        result.Answer,
+		ModelAnswer: result.ModelAnswer,
+		Structured:  result.Structured,
+		Json:        result.Json,
+		Incomplete:  result.Incomplete,
+		Charts:      result.Charts,
+		Steps:       result.Steps,
+		ToolCalls:   result.ToolCalls,
+		Usage:       result.Usage,
+		Trace:       result.Trace,
 	}, nil
 }
 
-// record — запись вопроса в журнал; ошибка журнала не роняет ответ.
+// record — запись вопроса в журнал; ошибка журнала не роняет ответ. Вопрос и ответ — как их
+// видела модель: персональные данные токенами.
 func (u *Usecase) record(ctx context.Context, q *model.Question, answer *model.Answer, err error, duration time.Duration) {
 	entry := &journalModel.Entry{
 		At: time.Now(), Client: q.Client, ConversationId: q.ConversationId, UserId: q.User.Id, UserName: q.User.Name,
-		Question: strings.TrimSpace(q.Text), Format: q.Format, ClientSchema: q.ResponseSchema != nil,
+		Question: u.pii.Mask(strings.TrimSpace(q.Text)), Format: q.Format, ClientSchema: q.ResponseSchema != nil,
 		Duration: duration,
 	}
 	switch {
@@ -192,8 +196,7 @@ func (u *Usecase) record(ctx context.Context, q *model.Question, answer *model.A
 		entry.Trace = lo.Map(answer.Trace, func(t agentModel.ToolTrace, _ int) journalModel.ToolCall {
 			return journalModel.ToolCall{Step: t.Step, Name: t.Name, Arguments: t.Arguments, Status: t.Status, Output: t.Output, Duration: t.Duration}
 		})
-		// схема клиента — ответ только в Json
-		entry.Answer = lo.Ternary(answer.Text == "" && answer.Json != nil, string(answer.Json), answer.Text)
+		entry.Answer = answer.ModelAnswer
 	}
 
 	if jerr := u.journal.Append(context.WithoutCancel(ctx), entry); jerr != nil {

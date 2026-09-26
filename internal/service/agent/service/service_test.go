@@ -18,8 +18,11 @@ import (
 	localConstant "github.com/mechta-market/pulse_agent/internal/service/agent/service/constant"
 	chartModel "github.com/mechta-market/pulse_agent/internal/service/chart/model"
 	llmModel "github.com/mechta-market/pulse_agent/internal/service/llm/model"
+	piiServiceP "github.com/mechta-market/pulse_agent/internal/service/pii/service"
 	pulseModel "github.com/mechta-market/pulse_agent/internal/service/pulse/model"
 )
+
+var testPii = piiServiceP.New(piiServiceP.Config{Key: []byte("test")})
 
 // fakeLlm отвечает заранее заданными шагами и запоминает запросы.
 type fakeLlm struct {
@@ -67,6 +70,9 @@ func (f *fakePulse) Call(_ context.Context, name, arguments string) (*pulseModel
 		return nil, errors.New("connection refused")
 	case "bad_args":
 		return &pulseModel.CallResult{Text: "unknown service", IsError: true}, nil
+	case "call_service_endpoint":
+		return &pulseModel.CallResult{Text: `{"data":{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров"},` +
+			`"personal_fields":{"customer_phone":"phone","customer_name":"name"}}`}, nil
 	}
 	return &pulseModel.CallResult{Text: `{"ok":true}`}, nil
 }
@@ -80,7 +86,7 @@ func textStep(text string) *llmModel.Response {
 }
 
 func newService(llm *fakeLlm, pulse *fakePulse, maxToolCalls int) *Service {
-	return New(Config{MaxToolCalls: maxToolCalls, Timeout: 5 * time.Minute}, llm, pulse, nil)
+	return New(Config{MaxToolCalls: maxToolCalls, Timeout: 5 * time.Minute}, llm, pulse, nil, testPii)
 }
 
 func TestRun_ToolLoop(t *testing.T) {
@@ -259,7 +265,7 @@ func TestRun_Charts(t *testing.T) {
 	}}
 	chart := &fakeChart{}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, chart).Run(context.Background(), &agentModel.Req{Question: "память caravan?", Charts: true})
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, chart, testPii).Run(context.Background(), &agentModel.Req{Question: "память caravan?", Charts: true})
 	require.NoError(t, err)
 
 	assert.True(t, lo.ContainsBy(llm.requests[0].Tools, func(d llmModel.ToolDef) bool { return d.Name == localConstant.ChartTool }))
@@ -291,7 +297,7 @@ func TestRun_ChartsLimit(t *testing.T) {
 	}
 	llm := &fakeLlm{steps: []*llmModel.Response{toolStep("s1", calls...), textStep("ok")}}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}).Run(context.Background(), &agentModel.Req{Question: "q", Charts: true})
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}, testPii).Run(context.Background(), &agentModel.Req{Question: "q", Charts: true})
 	require.NoError(t, err)
 	assert.Len(t, res.Charts, localConstant.MaxCharts)
 	assert.Contains(t, llm.requests[1].ToolResults[localConstant.MaxCharts].Output, "не больше")
@@ -305,7 +311,7 @@ func TestRun_JsonFormat(t *testing.T) {
 		"next_steps":["проверить медленные запросы"],"unavailable_sources":["loki"]}`
 	llm := &fakeLlm{steps: []*llmModel.Response{textStep(structured)}}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}).
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, &fakeChart{}, testPii).
 		Run(context.Background(), &agentModel.Req{Question: "что с caravan?", Format: localConstant.FormatJson})
 	require.NoError(t, err)
 
@@ -331,7 +337,7 @@ func TestRun_JsonFormat(t *testing.T) {
 
 	// модель не выдала JSON — текст как есть, без полей
 	llm = &fakeLlm{steps: []*llmModel.Response{textStep("не JSON")}}
-	res, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil).
+	res, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii).
 		Run(context.Background(), &agentModel.Req{Question: "q", Format: localConstant.FormatJson})
 	require.NoError(t, err)
 	assert.Nil(t, res.Structured)
@@ -360,7 +366,7 @@ func TestRun_ClientSchema(t *testing.T) {
 	}, "required": []any{"order_status"}}
 	llm := &fakeLlm{steps: []*llmModel.Response{textStep(`{"order_status":"completed","failed_service":null}`)}}
 
-	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil).
+	res, err := New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii).
 		Run(context.Background(), &agentModel.Req{Question: "что по заказу 41314079?", Format: localConstant.FormatJson, ResponseSchema: schema})
 	require.NoError(t, err)
 
@@ -377,8 +383,42 @@ func TestRun_ClientSchema(t *testing.T) {
 
 	// неверная схема — ошибка клиента, модель не вызывается
 	llm = &fakeLlm{}
-	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil).
+	_, err = New(Config{MaxToolCalls: 20, Timeout: 5 * time.Minute}, llm, &fakePulse{}, nil, testPii).
 		Run(context.Background(), &agentModel.Req{Question: "q", ResponseSchema: map[string]any{"type": "array"}})
 	require.ErrorIs(t, err, errs.InvalidRequest)
 	assert.Empty(t, llm.requests)
+}
+
+// Модель видит персональные данные только токенами: в вопросе, истории и ответах pulse; токен в
+// аргументах уходит в pulse настоящим значением, в готовом ответе — раскрывается.
+func TestRun_PersonalData(t *testing.T) {
+	phone := testPii.Mask("+77011234567")
+	llm := &fakeLlm{steps: []*llmModel.Response{
+		toolStep("s1", llmModel.ToolCall{Id: "c1", Name: "call_service_endpoint", Arguments: `{"service":"orders","endpoint_id":"order"}`}),
+		toolStep("s2", llmModel.ToolCall{Id: "c2", Name: "query_logs", Arguments: `{"pattern":"` + phone + `"}`}),
+		textStep("Заказ 234115 клиента " + phone),
+	}}
+	pulse := &fakePulse{}
+
+	res, err := newService(llm, pulse, 20).Run(context.Background(), &agentModel.Req{
+		History:  []agentModel.Turn{{Question: "почта ivan@mail.kz?", Answer: "нашёл"}},
+		Question: "что с клиентом 8 701 123 45 67?",
+	})
+	require.NoError(t, err)
+
+	first := llm.requests[0]
+	assert.Contains(t, first.Messages[0].Text, "pii:email:", "история — токенами")
+	assert.Contains(t, first.Messages[2].Text, "клиентом "+phone, "вопрос — токенами")
+	assert.NotContains(t, first.Messages[2].Text, "701")
+
+	output := llm.requests[1].ToolResults[0].Output
+	assert.Contains(t, output, `"customer_phone":"`+phone+`"`)
+	assert.Contains(t, output, `"customer_name":"pii:name:`)
+	assert.NotContains(t, output, "Иван")
+
+	assert.Equal(t, `query_logs {"pattern":"+77011234567"}`, pulse.calls[1], "в pulse — настоящий номер")
+	assert.Equal(t, `{"pattern":"`+phone+`"}`, res.Trace[1].Arguments, "в ходе разбора — как писала модель")
+
+	assert.Equal(t, "Заказ 234115 клиента +77011234567", res.Answer)
+	assert.Equal(t, "Заказ 234115 клиента "+phone, res.ModelAnswer)
 }

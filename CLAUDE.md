@@ -91,6 +91,14 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     состояния), модели шага
     (`model/`, `Request.Output` — JSON Schema итогового ответа). Адаптеры —
     `llm/<provider>/service`; сейчас `openai` (`text.format: json_schema`, strict).
+  - `pii` — персональные данные токенами на границе с моделью (стандарт pulse, «Персональные данные —
+    токенами»; pulse отдаёт данные как есть, прячет их только агент): `pii:<вид>:<12 букв a–p>` —
+    HMAC с `PII_TOKEN_KEY` от значения, приведённого к одному виду (телефон — цифры с кодом страны
+    `PII_PHONE_COUNTRY_CODE`); память «токен → значение» 24 ч. `Mask` — вопрос и история (телефоны,
+    email, карты — маской); `MaskToolOutput` — ответ pulse (плюс `personal_fields` ручек — по виду);
+    `RevealArgs` — токены видов с поиском в аргументах вызова pulse (телефон — `+цифры`); `Reveal` —
+    итоговый ответ и подписи графиков. В журнал и историю беседы — то, что видела модель
+    (`Result.ModelAnswer`, вопрос через `Mask`); клиенты токенов не видят (кроме `trace`).
   - `pulse` — MCP-клиент pulse: ленивое подключение, переподключение при потере сессии,
     bearer-токен, каталог инструментов перечитывается на каждый разбор.
   - `retention` — фоновая чистка журнала: раз в час удаляет записи старше
@@ -243,7 +251,9 @@ domain service → repo
   (секрет; имя системы — в журнале и метриках). `DEBUG_TOKEN` — ключ разработчика (секрет; пусто —
   `/debug` закрыт); `EVAL_CLIENTS` — кому можно `/v1/eval` (бот); `EVAL_PARALLEL` (3),
   `EVAL_TIMEOUT` (20m). Журнал: `PG_DSN` (секрет; `postgres://…@pulse-pg.default:5432/pulse_agent`,
-  пусто — в памяти), `JOURNAL_RETENTION_DAYS` (90), `JOURNAL_SIZE` (500, только в памяти).
+  пусто — в памяти), `JOURNAL_RETENTION_DAYS` (90), `JOURNAL_SIZE` (500, только в памяти). Персональные данные:
+  `PII_TOKEN_KEY` (секрет, ≥32 случайных символа; пусто — токены меняются после рестарта),
+  `PII_PHONE_COUNTRY_CODE` (7).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:
