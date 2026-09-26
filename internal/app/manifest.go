@@ -21,6 +21,21 @@ func newPulsekit() *pulsekit.Kit {
 		OwnerTeam:   "platform",
 		Criticality: "low",
 		RepoUrl:     "https://github.com/mechta-market/pulse_agent",
+		Domain: &pulsekit.Domain{
+			Responsibilities: []string{
+				"Отвечает на вопросы об инфраструктуре: LLM с инструментами pulse, графики",
+				"Прячет персональные данные от модели токенами и раскрывает их в ответе",
+				"Журнал вопросов: кто спросил, чем закончилось, ход разбора",
+			},
+			NotResponsible: []pulsekit.Boundary{
+				{What: "данные о сервисах и кластере", Service: "pulse"},
+				{What: "Telegram: доступ пользователей, доставка сообщений", Service: "pulse_bot"},
+			},
+			Questions: []pulsekit.Question{
+				{Question: "сколько вопросов и чем закончились", Endpoint: "question_stats"},
+				{Question: "почему агент ответил не так", How: "журнал вопросов: /debug/journal/{id} — ответ и вызовы pulse"},
+			},
+		},
 	}, pulsekit.Build{Version: constant.Version, Commit: constant.Commit, BuiltAt: constant.BuiltAt})
 }
 

@@ -44,8 +44,27 @@ var testService = Service{
 // order — что отдаст ручка на номер (для проверок ответа по схеме).
 var order = map[string]orderRep{}
 
+// testDomain — бизнес-смысл сервиса из newKit (вопрос ссылается на его ручку).
+var testDomain = &Domain{
+	Responsibilities: []string{"Принимает заказы", "Ведёт заказ до выдачи"},
+	NotResponsible: []Boundary{
+		{What: "оплата", Service: "payments"},
+	},
+	Entities: []Entity{
+		{Name: "заказ", IdPattern: "[0-9]{5,12}", IdExample: "234115", Statuses: []EntityStatus{
+			{Name: "paid", Meaning: "оплачен, ждёт сборки", StuckAfter: 2 * time.Hour},
+			{Name: "shipped", Meaning: "отгружен"},
+		}},
+	},
+	Questions: []Question{
+		{Question: "где заказ", Endpoint: "order_status"},
+	},
+}
+
 func newKit() *Kit {
-	k := New(Config{SlowAfter: 50 * time.Millisecond}, testService, Build{Version: "v1", Commit: "9f597a7c1e2d4b8a0f3c6e5d7b9a1c2e4f6a8b0c"})
+	service := testService
+	service.Domain = testDomain
+	k := New(Config{SlowAfter: 50 * time.Millisecond}, service, Build{Version: "v1", Commit: "9f597a7c1e2d4b8a0f3c6e5d7b9a1c2e4f6a8b0c"})
 	k.Depend("pg", "postgres", "ocenter-pg", true, func(context.Context) error { return nil }).Affects("приём и выдача заказов")
 	k.Depend("onec", "http", "onec-proxy", false, func(context.Context) error {
 		return errors.New("dial tcp postgres://app:s3cr3t@onec: connection refused")
@@ -103,6 +122,33 @@ func TestManifest(t *testing.T) {
 	assert.Len(t, m["metrics"], 1)
 	assert.Len(t, m["logs"].(map[string]any)["error_patterns"], 1)
 	assert.Len(t, m["runbooks"], 1)
+	domain := m["domain"].(map[string]any)
+	entity := domain["entities"].([]any)[0].(map[string]any)
+	assert.Equal(t, "[0-9]{5,12}", entity["id_pattern"])
+	assert.Equal(t, "2h0m0s", entity["statuses"].([]any)[0].(map[string]any)["stuck_after"])
+	assert.Empty(t, newKit().Problems(), "вопрос ссылается на объявленную ручку")
+}
+
+// Формат номера проверяется: не RE2 или пример не подходит — шаблон не публикуется; вопрос со
+// ссылкой на необъявленную ручку — в Problems.
+func TestDomainRules(t *testing.T) {
+	service := testService
+	service.Domain = &Domain{
+		Entities: []Entity{
+			{Name: "рейс", IdPattern: "(?=x)"},
+			{Name: "курьер", IdPattern: "[0-9]{4}", IdExample: "12345"},
+			{Name: "доставка", IdPattern: "[0-9]{7}", IdExample: "7784512"},
+		},
+		Questions: []Question{
+			{Question: "где курьер", Endpoint: "courier_status"},
+		},
+	}
+	k := New(Config{}, service, Build{})
+	entities := k.Manifest().Domain.Entities
+	assert.Empty(t, entities[0].IdPattern)
+	assert.Empty(t, entities[1].IdPattern)
+	assert.Equal(t, "[0-9]{7}", entities[2].IdPattern)
+	assert.Len(t, k.Problems(), 3, k.Problems())
 }
 
 func TestStatus(t *testing.T) {

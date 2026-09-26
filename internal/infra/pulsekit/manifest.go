@@ -9,7 +9,65 @@ type ManifestRep struct {
 	Dependencies  []dependencyRep `json:"dependencies,omitempty"`
 	Metrics       []metricRep     `json:"metrics,omitempty"`
 	Logs          *logsRep        `json:"logs,omitempty"`
+	Domain        *domainRep      `json:"domain,omitempty"`
 	Endpoints     []endpointRep   `json:"endpoints,omitempty"`
+}
+
+type domainRep struct {
+	Responsibilities []string      `json:"responsibilities,omitempty"`
+	NotResponsible   []boundaryRep `json:"not_responsible,omitempty"`
+	Entities         []entityRep   `json:"entities,omitempty"`
+	Questions        []questionRep `json:"questions,omitempty"`
+}
+
+type boundaryRep struct {
+	What    string `json:"what"`
+	Service string `json:"service,omitempty"`
+}
+
+type entityRep struct {
+	Name        string            `json:"name"`
+	IdPattern   string            `json:"id_pattern,omitempty"`
+	IdExample   string            `json:"id_example,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Statuses    []entityStatusRep `json:"statuses,omitempty"`
+}
+
+type entityStatusRep struct {
+	Name       string `json:"name"`
+	Meaning    string `json:"meaning,omitempty"`
+	StuckAfter string `json:"stuck_after,omitempty"`
+}
+
+type questionRep struct {
+	Question string `json:"question"`
+	How      string `json:"how,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
+func encodeDomain(d *Domain) *domainRep {
+	if d == nil {
+		return nil
+	}
+	rep := &domainRep{Responsibilities: d.Responsibilities}
+	for _, b := range d.NotResponsible {
+		rep.NotResponsible = append(rep.NotResponsible, boundaryRep(b))
+	}
+	for _, e := range d.Entities {
+		entity := entityRep{Name: e.Name, IdPattern: e.IdPattern, IdExample: e.IdExample, Description: e.Description}
+		for _, s := range e.Statuses {
+			status := entityStatusRep{Name: s.Name, Meaning: s.Meaning}
+			if s.StuckAfter > 0 {
+				status.StuckAfter = s.StuckAfter.String()
+			}
+			entity.Statuses = append(entity.Statuses, status)
+		}
+		rep.Entities = append(rep.Entities, entity)
+	}
+	for _, q := range d.Questions {
+		rep.Questions = append(rep.Questions, questionRep(q))
+	}
+	return rep
 }
 
 type serviceRep struct {
@@ -102,6 +160,7 @@ func (k *Kit) Manifest() ManifestRep {
 	for _, r := range s.Runbooks {
 		rep.Runbooks = append(rep.Runbooks, runbookRep(r))
 	}
+	rep.Domain = encodeDomain(s.Domain)
 
 	for _, d := range k.deps {
 		rep.Dependencies = append(rep.Dependencies, dependencyRep{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Affects: d.affects})

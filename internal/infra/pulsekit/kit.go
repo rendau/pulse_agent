@@ -62,6 +62,8 @@ type Service struct {
 	DocsUrl       string
 	// Runbooks — инструкции для дежурных (http(s)-ссылки)
 	Runbooks []Runbook
+	// Domain — бизнес-смысл для агента: за что отвечает, объекты и статусы, типичные вопросы
+	Domain *Domain
 }
 
 type Runbook struct {
@@ -186,6 +188,7 @@ func (k *Kit) validateService(s Service) Service {
 		runbooks = append(runbooks, r)
 	}
 	s.Runbooks = runbooks
+	s.Domain = k.validateDomain(s.Domain)
 	return s
 }
 
@@ -194,7 +197,7 @@ func (k *Kit) validateService(s Service) Service {
 func (k *Kit) Problems() []string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	return slices.Clone(k.problems)
+	return append(slices.Clone(k.problems), k.domainProblems()...)
 }
 
 // Warnings — тексты длиннее лимитов стандарта: опубликованы, pulse их обрежет.

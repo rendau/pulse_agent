@@ -164,3 +164,37 @@ func ExamplePassive_Idle() {
 		return Problem{Status: "ok", Message: "вызовов не было, сеть до хоста есть"}
 	}).Affects("выдача заказов с оплатой")
 }
+
+// Бизнес-смысл сервиса для агента: за что отвечает, чем не занимается, объекты (формат номера,
+// статусы, когда застрял) и типичные вопросы. Заполняется в internal/app/manifest.go.
+func ExampleDomain() {
+	kit := New(Config{}, Service{
+		Name: "orders", Title: "Заказы", Description: "Принимает заказы и ведёт их до выдачи", OwnerTeam: "orders", Criticality: "high",
+		Domain: &Domain{
+			Responsibilities: []string{"Принимает заказы с сайта и из магазинов", "Ведёт заказ до выдачи: оплата, сборка, отгрузка"},
+			NotResponsible: []Boundary{
+				{What: "оплата и возвраты", Service: "payments"},
+				{What: "доставка курьером", Service: "caravan"},
+			},
+			Entities: []Entity{
+				{
+					Name: "заказ", IdPattern: "[0-9]{5,12}", IdExample: "234115", Description: "заказ клиента от создания до выдачи",
+					Statuses: []EntityStatus{
+						{Name: string(OrderNew), Meaning: "создан, ждёт оплаты", StuckAfter: 30 * time.Minute},
+						{Name: string(OrderPaid), Meaning: "оплачен, ждёт сборки", StuckAfter: 2 * time.Hour},
+						{Name: string(OrderShipped), Meaning: "отгружен в доставку"},
+					},
+				},
+			},
+			Questions: []Question{
+				{Question: "где заказ и почему застрял", Endpoint: "order_status"},
+				{Question: "почему заказ не попал в 1С", How: "логи сервиса по номеру заказа"},
+			},
+		},
+	}, Build{})
+	handleExampleOrderStatus(kit, fakeExampleOrders{})
+
+	fmt.Println(len(kit.Problems()))
+	// Output:
+	// 0
+}
