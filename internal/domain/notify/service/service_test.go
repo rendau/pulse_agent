@@ -135,7 +135,7 @@ func TestMuteValidation(t *testing.T) {
 	repo := &fakeRepo{}
 	s := New(repo)
 
-	_, err := s.Mute(ctx, &model.MuteSpec{Client: "bot", ConversationId: "1", Kind: "logs"})
+	_, err := s.Mute(ctx, &model.MuteSpec{Client: "bot", ConversationId: "1", Kind: "metrics"})
 	require.ErrorIs(t, err, errs.InvalidRequest)
 	_, err = s.Mute(ctx, &model.MuteSpec{Client: "bot", ConversationId: "1", NotificationId: 42})
 	require.ErrorIs(t, err, errs.ObjectNotFound)
