@@ -15,6 +15,7 @@ package pulsekit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -118,6 +119,7 @@ type dependency struct {
 	Kind     string
 	Target   string
 	Critical bool
+	affects  string
 	check    Check
 
 	status    string
@@ -173,6 +175,14 @@ func validateService(s Service) {
 	}
 }
 
+// cut — текст не длиннее n символов.
+func cut(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
 // checkText — текст не длиннее лимита стандарта: pulse обрезал бы его молча.
 func checkText(what, text string, limit int) {
 	if n := utf8.RuneCountInString(strings.TrimSpace(text)); n > limit {
@@ -185,7 +195,8 @@ func checkText(what, text string, limit int) {
 // Host), critical — без неё сервис не работает. check — «проверь, что работает» (Ping клиента).
 // target с учётными данными или похожий на строку подключения не попадает в манифест: вместо
 // него — unknown и предупреждение в лог (адрес приходит из окружения — ронять сервис нельзя).
-func (k *Kit) Depend(id, kind, target string, critical bool, check Check) {
+// Проверка может вернуть Problem — свой статус и сообщение (так делает Passive).
+func (k *Kit) Depend(id, kind, target string, critical bool, check Check) *DependencyDecl {
 	if !idRe.MatchString(id) {
 		panic(fmt.Sprintf("pulsekit: dependency id %q: expected %s", id, idRe))
 	}
@@ -197,10 +208,37 @@ func (k *Kit) Depend(id, kind, target string, critical bool, check Check) {
 		slog.Warn("pulsekit: dependency target is empty or looks like a connection string — replaced with unknown (use pulsekit.Host)", "dependency", id)
 		target = "unknown"
 	}
+	d := &dependency{Id: id, Kind: kind, Target: target, Critical: critical, check: check}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.deps = append(k.deps, &dependency{Id: id, Kind: kind, Target: target, Critical: critical, check: check})
+	k.deps = append(k.deps, d)
+	return &DependencyDecl{k: k, d: d}
 }
+
+// DependencyDecl — объявленная зависимость: уточнения цепочкой после Depend.
+type DependencyDecl struct {
+	k *Kit
+	d *dependency
+}
+
+// Affects — что ломается, когда зависимость недоступна («выдача заказов», ≤ 100): critical
+// говорит только «весь сервис down или нет», агенту нужно последствие.
+func (d *DependencyDecl) Affects(what string) *DependencyDecl {
+	checkText("dependency "+d.d.Id+" affects", what, maxTitleChars)
+	d.k.mu.Lock()
+	defer d.k.mu.Unlock()
+	d.d.affects = strings.TrimSpace(what)
+	return d
+}
+
+// Problem — результат проверки со своим статусом и сообщением (degraded или down): сообщение
+// уходит в ручку состояния как есть — пишите его сами, без текста чужих ошибок (≤ 300).
+type Problem struct {
+	Status  string // degraded | down
+	Message string
+}
+
+func (p Problem) Error() string { return p.Status + ": " + p.Message }
 
 // Metric объявляет свою метрику (если стандартных rps, ошибок и задержки недостаточно).
 func (k *Kit) Metric(m Metric) {
@@ -288,7 +326,10 @@ func (k *Kit) checkAll(ctx context.Context) {
 			err := d.check(checkCtx)
 			took := time.Since(started)
 			res := result{status: "ok", latency: took.Milliseconds()}
+			problem, isProblem := errors.AsType[Problem](err)
 			switch {
+			case isProblem && (problem.Status == "degraded" || problem.Status == "down"):
+				res.status, res.message = problem.Status, cut(problem.Message, 300)
 			case err != nil:
 				res.status, res.message = "down", Describe(err)
 			case took > k.conf.SlowAfter:

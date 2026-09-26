@@ -42,6 +42,7 @@ type dependencyRep struct {
 	Kind     string `json:"kind"`
 	Target   string `json:"target"`
 	Critical bool   `json:"critical"`
+	Affects  string `json:"affects,omitempty"`
 }
 
 type metricRep struct {
@@ -103,7 +104,7 @@ func (k *Kit) Manifest() ManifestRep {
 	}
 
 	for _, d := range k.deps {
-		rep.Dependencies = append(rep.Dependencies, dependencyRep{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical})
+		rep.Dependencies = append(rep.Dependencies, dependencyRep{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical, Affects: d.affects})
 	}
 	for _, m := range k.metrics {
 		rep.Metrics = append(rep.Metrics, metricRep(m))

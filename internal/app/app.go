@@ -194,10 +194,10 @@ func (a *App) Init() {
 		a.pulsekit.Depend("pulse", "http", pulsekit.Host(config.Conf.PulseMcpUrl), true, func(ctx context.Context) error {
 			_, err := a.pulse.Catalog(ctx)
 			return err
-		})
-		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, llmProvider.Ping)
+		}).Affects("ответы на вопросы")
+		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, llmProvider.Ping).Affects("ответы на вопросы")
 		if a.pgpool != nil {
-			a.pulsekit.Depend("journal_pg", "postgres", pulsekit.Host(config.Conf.PgDsn), false, a.pgpool.Ping)
+			a.pulsekit.Depend("journal_pg", "postgres", pulsekit.Host(config.Conf.PgDsn), false, a.pgpool.Ping).Affects("журнал вопросов")
 		}
 		handleQuestionStats(a.pulsekit, monitorUsecase)
 	}
