@@ -93,6 +93,8 @@ func signalRef(s *notifyModel.Signal) string {
 		return ref[:min(len(ref), 7)]
 	case notifyModel.KindSelf:
 		return firstString(details, "status")
+	case notifyModel.KindPublic:
+		return firstString(details, "app")
 	}
 	return ""
 }

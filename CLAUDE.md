@@ -131,7 +131,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     `WATCH_CLUSTER_INTERVAL` (5m) — `get_cluster_health` (окно 15m): `logs` — всплеск ошибок сервиса
     (не меньше `WATCH_LOG_ERRORS_MIN` и в `WATCH_LOG_ERRORS_FACTOR` раз выше медианы 12 прошлых опросов;
     обычный уровень — в памяти, первые 3 опроса после старта — без сигналов), `self` — самоотчёт не ok
-    (`self_reported`). Повтор одного сигнала сервиса — не чаще `WATCH_ALERT_REPEAT`. Выкатка
+    (`self_reported`), `public` — приложение API-gateway с проблемой (`public_apps`: пороги и правила —
+    в pulse; ключ `public:<app>`, сервис — бэкенд, иначе имя приложения). Повтор одного сигнала сервиса — не чаще `WATCH_ALERT_REPEAT`. Выкатка
     через `WATCH_DEPLOY_DELAY`: сменилась следующей — `superseded`; снапшот healthy — `healthy` (без
     модели); иначе разбор. Алерт — разбор сразу. Разбор — `agent.Run` со схемой `verdictSchema`
     (notify, severity, title, text); notify=false — `quiet`. Сверх `WATCH_MAX_RUNS_PER_HOUR` разборов

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 	pulseModel "github.com/rendau/pulse_agent/internal/service/pulse/model"
 )
 
@@ -54,4 +55,26 @@ func TestCollectCluster(t *testing.T) {
 	notify.observed = nil
 	require.NoError(t, s.collectCluster(context.Background()))
 	assert.Equal(t, []string{"logs:caravan"}, notify.observed)
+}
+
+func TestCollectCluster_PublicApps(t *testing.T) {
+	pulse := &fakeClusterPulse{rep: `{"self_reported":[],"public_apps":[
+		{"app":"ocenter","service":"orders-center","problems":[{"kind":"errors","text":"сбои (5xx) — 20% запросов"},{"kind":"slow","text":"медленно — p95 3.5 с"}]},
+		{"app":"news","problems":[{"kind":"script","text":"скрипт маршрута POST /news/publish: request transform: compile failed ×1"}]},
+		{"app":"empty","problems":[]}]}`}
+	notify := &fakeNotify{}
+	s := New(Config{AlertRepeat: 6 * time.Hour, ClusterInterval: 5 * time.Minute, LogErrorsMin: 50, LogErrorsFactor: 5}, pulse, &fakeAgent{}, notify, &fakeJournal{})
+	s.now = func() time.Time { return now }
+
+	require.NoError(t, s.collectCluster(context.Background()))
+	assert.Equal(t, []string{"public:ocenter", "public:news"}, notify.observed, "сразу, без прогрева; без проблем — не сигнал")
+
+	ocenter := notify.signals[0]
+	assert.Equal(t, notifyModel.KindPublic, ocenter.Kind)
+	assert.Equal(t, "orders-center", ocenter.Service, "подписки и приглушения — по сервису-бэкенду")
+	assert.Equal(t, "публичный API ocenter (orders-center): сбои (5xx) — 20% запросов; медленно — p95 3.5 с", ocenter.Summary)
+	assert.JSONEq(t, `{"app":"ocenter","service":"orders-center","problems":[{"kind":"errors","text":"сбои (5xx) — 20% запросов"},{"kind":"slow","text":"медленно — p95 3.5 с"}]}`, string(ocenter.Details))
+	assert.Equal(t, "ocenter", signalRef(ocenter))
+
+	assert.Equal(t, "news", notify.signals[1].Service, "бэкенд не найден — по имени приложения")
 }

@@ -37,7 +37,8 @@ const mutedShown = 10
 var (
 	kindEnum        = append([]any{""}, lo.ToAnySlice(notifyModel.Kinds)...)
 	kindDescription = "alert — алерты, deploy — проверки после выкатки, logs — всплеск ошибок в логах, self — сервис сам " +
-		"сообщает о проблеме; пусто — любые"
+		"сообщает о проблеме, public — проблема публичного API (API-gateway: сбои, backend не отвечает, сломан " +
+		"скрипт маршрута, медленно, пропал трафик); пусто — любые"
 )
 
 var defs = []llmModel.ToolDef{

@@ -1,6 +1,7 @@
 // Package service — наблюдатель: раз в Interval берёт у pulse изменения по кластеру
 // (get_timeline scope=cluster), раз в ClusterInterval — здоровье кластера (get_cluster_health:
-// всплеск ошибок в логах против обычного уровня сервиса, самоотчёты не ok), заводит сигналы
+// всплеск ошибок в логах против обычного уровня сервиса, самоотчёты не ok, проблемы публичных
+// приложений API-gateway), заводит сигналы
 // (выкатка — один раз, остальное по сервису — не чаще AlertRepeat) и разбирает созревшие:
 // выкатку — через DeployDelay, только если снапшот сервиса не healthy; остальное — сразу. Разбор — агент со схемой ответа (сообщать ли и что); сверх
 // MaxRunsPerHour разборов или после неудачных попыток — уведомление без разбора.
@@ -183,6 +184,8 @@ func (s *Service) handle(ctx context.Context, signal *notifyModel.Signal) error 
 		question = fmt.Sprintf(logsQuestion, signal.Service, signal.Summary, string(signal.Details))
 	case notifyModel.KindSelf:
 		question = fmt.Sprintf(selfQuestion, signal.Service, signal.Summary, string(signal.Details))
+	case notifyModel.KindPublic:
+		question = fmt.Sprintf(publicQuestion, signal.Summary, string(signal.Details))
 	default:
 		question = fmt.Sprintf(alertQuestion, signal.Summary, string(signal.Details))
 	}

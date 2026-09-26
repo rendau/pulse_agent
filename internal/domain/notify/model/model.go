@@ -11,10 +11,11 @@ const (
 	KindDeploy = "deploy" // проверка после выкатки
 	KindLogs   = "logs"   // всплеск ошибок в логах сервиса
 	KindSelf   = "self"   // сервис сам сообщает о проблеме (манифест)
+	KindPublic = "public" // проблема публичного приложения API-gateway (сбои, backend, скрипт, задержка, трафик)
 )
 
 // Kinds — все виды (подписки и приглушения).
-var Kinds = []string{KindAlert, KindDeploy, KindLogs, KindSelf}
+var Kinds = []string{KindAlert, KindDeploy, KindLogs, KindSelf, KindPublic}
 
 // KindKnown — вид, который можно приглушить (пусто — любой).
 func KindKnown(kind string) bool {

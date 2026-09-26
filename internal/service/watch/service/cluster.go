@@ -33,6 +33,19 @@ type clusterRep struct {
 		Stale   bool     `json:"stale"`
 		Hints   []string `json:"hints"`
 	} `json:"self_reported"`
+	// PublicApps — приложения API-gateway с проблемой; разбору — как есть
+	PublicApps []json.RawMessage `json:"public_apps"`
+}
+
+// publicApp — нужная наблюдателю часть приложения из public_apps.
+type publicApp struct {
+	App      string          `json:"app"`
+	Service  string          `json:"service"`
+	Problems []publicProblem `json:"problems"`
+}
+
+type publicProblem struct {
+	Text string `json:"text"`
 }
 
 // serviceLogErrors — ошибки в логах сервиса за окно.
@@ -77,7 +90,8 @@ func median(values []int) int {
 	return sorted[len(sorted)/2]
 }
 
-// collectCluster — сигналы из здоровья кластера: всплеск ошибок в логах и самоотчёты не ok.
+// collectCluster — сигналы из здоровья кластера: всплеск ошибок в логах, самоотчёты не ok и
+// проблемы публичных приложений API-gateway.
 func (s *Service) collectCluster(ctx context.Context) error {
 	var rep clusterRep
 	if err := s.call(ctx, "get_cluster_health", map[string]any{"window": clusterWindow}, &rep); err != nil {
@@ -121,6 +135,22 @@ func (s *Service) collectCluster(ctx context.Context) error {
 		signals = append(signals, &notifyModel.Signal{
 			Key: "self:" + v.Service, Kind: notifyModel.KindSelf, Service: v.Service, At: now, DueAt: now,
 			Summary: summary, Details: details,
+		})
+	}
+
+	for _, raw := range rep.PublicApps {
+		var app publicApp
+		if json.Unmarshal(raw, &app) != nil || app.App == "" || len(app.Problems) == 0 {
+			continue
+		}
+		name := app.App
+		if app.Service != "" && app.Service != app.App {
+			name += " (" + app.Service + ")"
+		}
+		problems := lo.Map(app.Problems, func(p publicProblem, _ int) string { return p.Text })
+		signals = append(signals, &notifyModel.Signal{
+			Key: "public:" + app.App, Kind: notifyModel.KindPublic, Service: lo.CoalesceOrEmpty(app.Service, app.App), At: now, DueAt: now,
+			Summary: fmt.Sprintf("публичный API %s: %s", name, strings.Join(problems, "; ")), Details: raw,
 		})
 	}
 

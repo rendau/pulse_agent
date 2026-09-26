@@ -132,7 +132,7 @@ func (s *Service) Subscribe(ctx context.Context, spec *model.SubscriptionSpec) (
 	}
 	switch {
 	case !model.KindKnown(sub.Kind):
-		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self or empty (any)", errs.InvalidRequest, sub.Kind)
+		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self, public or empty (any)", errs.InvalidRequest, sub.Kind)
 	case !model.SeverityKnown(sub.MinSeverity):
 		return nil, fmt.Errorf("%w: min_severity %q; expected info, warning, critical or empty (any)", errs.InvalidRequest, sub.MinSeverity)
 	}
@@ -175,7 +175,7 @@ func (s *Service) Mute(ctx context.Context, spec *model.MuteSpec) (*model.Mute, 
 	case spec.For < 0:
 		return nil, fmt.Errorf("%w: negative mute duration", errs.InvalidRequest)
 	case !model.KindKnown(m.Kind):
-		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self or empty (any)", errs.InvalidRequest, m.Kind)
+		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self, public or empty (any)", errs.InvalidRequest, m.Kind)
 	}
 	if spec.NotificationId > 0 {
 		n, err := s.repo.GetNotification(ctx, spec.NotificationId)
