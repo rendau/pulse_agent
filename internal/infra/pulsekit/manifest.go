@@ -5,7 +5,10 @@ type ManifestRep struct {
 	PulseManifest int             `json:"pulse_manifest"`
 	Service       serviceRep      `json:"service"`
 	Build         buildRep        `json:"build"`
+	Runbooks      []runbookRep    `json:"runbooks,omitempty"`
 	Dependencies  []dependencyRep `json:"dependencies,omitempty"`
+	Metrics       []metricRep     `json:"metrics,omitempty"`
+	Logs          *logsRep        `json:"logs,omitempty"`
 	Endpoints     []endpointRep   `json:"endpoints,omitempty"`
 }
 
@@ -29,11 +32,33 @@ type buildRep struct {
 	BuiltAt string `json:"built_at,omitempty"`
 }
 
+type runbookRep struct {
+	Title string `json:"title"`
+	Url   string `json:"url"`
+}
+
 type dependencyRep struct {
 	Id       string `json:"id"`
 	Kind     string `json:"kind"`
 	Target   string `json:"target"`
 	Critical bool   `json:"critical"`
+}
+
+type metricRep struct {
+	Id        string `json:"id"`
+	Title     string `json:"title"`
+	PromQL    string `json:"promql"`
+	Unit      string `json:"unit,omitempty"`
+	Direction string `json:"direction,omitempty"`
+}
+
+type logsRep struct {
+	ErrorPatterns []errorPatternRep `json:"error_patterns,omitempty"`
+}
+
+type errorPatternRep struct {
+	Name    string `json:"name"`
+	Pattern string `json:"pattern"`
 }
 
 type endpointRep struct {
@@ -45,6 +70,7 @@ type endpointRep struct {
 	TimeoutMs   int64               `json:"timeout_ms,omitempty"`
 	Response    *schema             `json:"response"`
 	RowsPath    string              `json:"rows_path,omitempty"`
+	MaxRows     int                 `json:"max_rows,omitempty"`
 }
 
 type paramRep struct {
@@ -53,7 +79,7 @@ type paramRep struct {
 	Enum        []string `json:"enum,omitempty"`
 	Min         *float64 `json:"min,omitempty"`
 	Max         *float64 `json:"max,omitempty"`
-	Default     string   `json:"default,omitempty"`
+	Default     any      `json:"default,omitempty"` // в типе параметра: 20, а не "20"
 	Required    bool     `json:"required,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Personal    string   `json:"x-personal,omitempty"`
@@ -72,18 +98,31 @@ func (k *Kit) Manifest() ManifestRep {
 	rep.Service = serviceRep{Name: s.Name, Title: s.Title, Description: s.Description, Aliases: s.Aliases,
 		Criticality: s.Criticality, RepoUrl: s.RepoUrl, DocsUrl: s.DocsUrl}
 	rep.Service.Owner.Team, rep.Service.Owner.Contacts = s.OwnerTeam, s.OwnerContacts
+	for _, r := range s.Runbooks {
+		rep.Runbooks = append(rep.Runbooks, runbookRep(r))
+	}
 
 	for _, d := range k.deps {
 		rep.Dependencies = append(rep.Dependencies, dependencyRep{Id: d.Id, Kind: d.Kind, Target: d.Target, Critical: d.Critical})
 	}
+	for _, m := range k.metrics {
+		rep.Metrics = append(rep.Metrics, metricRep(m))
+	}
+	if len(k.errorPatterns) > 0 {
+		rep.Logs = &logsRep{}
+		for _, p := range k.errorPatterns {
+			rep.Logs.ErrorPatterns = append(rep.Logs.ErrorPatterns, errorPatternRep(p))
+		}
+	}
 	for _, e := range k.endpoints {
 		params := make(map[string]paramRep, len(e.Params))
 		for name, p := range e.Params {
+			def, _ := typedDefault(p) // проверено при регистрации
 			params[name] = paramRep{Type: cmpOr(p.Type, "string"), Pattern: p.Pattern, Enum: p.Enum, Min: p.Min, Max: p.Max,
-				Default: p.Default, Required: p.Required, Description: p.Description, Personal: p.Personal}
+				Default: def, Required: p.Required, Description: p.Description, Personal: p.Personal}
 		}
 		rep.Endpoints = append(rep.Endpoints, endpointRep{Id: e.Id, Title: e.Title, Description: e.Description, Path: e.Path,
-			Params: params, TimeoutMs: e.Timeout.Milliseconds(), Response: e.response, RowsPath: e.RowsPath})
+			Params: params, TimeoutMs: e.Timeout.Milliseconds(), Response: e.response, RowsPath: e.RowsPath, MaxRows: e.MaxRows})
 	}
 	return rep
 }

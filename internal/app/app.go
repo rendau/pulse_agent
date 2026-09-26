@@ -191,13 +191,13 @@ func (a *App) Init() {
 	// pulsekit (манифест агента: сведения о себе, зависимости, ручка question_stats)
 	a.pulsekit = newPulsekit()
 	{
-		a.pulsekit.Depend("pulse", "http", hostOf(config.Conf.PulseMcpUrl), true, func(ctx context.Context) error {
+		a.pulsekit.Depend("pulse", "http", pulsekit.Host(config.Conf.PulseMcpUrl), true, func(ctx context.Context) error {
 			_, err := a.pulse.Catalog(ctx)
 			return err
 		})
 		a.pulsekit.Depend("llm", "http", llmProvider.Name(), true, llmProvider.Ping)
 		if a.pgpool != nil {
-			a.pulsekit.Depend("journal_pg", "postgres", hostOf(config.Conf.PgDsn), false, a.pgpool.Ping)
+			a.pulsekit.Depend("journal_pg", "postgres", pulsekit.Host(config.Conf.PgDsn), false, a.pgpool.Ping)
 		}
 		handleQuestionStats(a.pulsekit, monitorUsecase)
 	}

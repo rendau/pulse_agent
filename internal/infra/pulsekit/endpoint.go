@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"slices"
@@ -12,8 +13,13 @@ import (
 	"time"
 )
 
+// RequestIdHeader — заголовок, с которым pulse вызывает ручку: по нему вызов находится в логе
+// сервиса.
+const RequestIdHeader = "X-Pulse-Request-Id"
+
 // Param — параметр ручки. Строковому нужен Pattern, Enum или Personal (вид персональных
-// данных: phone, email, iin, customer_id — принимает токен, значение подставит pulse).
+// данных: phone, email, iin, customer_id — значение приходит настоящим, приведённым к одному
+// виду: телефон — цифры с кодом страны). Default — в виде типа параметра ("20" у integer).
 type Param struct {
 	Type        string // string | integer | number | boolean
 	Pattern     string
@@ -21,20 +27,22 @@ type Param struct {
 	Min, Max    *float64
 	Default     string
 	Required    bool
-	Description string
+	Description string // ≤ 500
 	Personal    string
 }
 
 // Endpoint — диагностическая ручка: только чтение, быстро, без побочных эффектов.
 type Endpoint struct {
 	Id          string
-	Title       string
-	Description string // для агента: когда вызывать, когда нет, что вернёт
+	Title       string // ≤ 100
+	Description string // для агента: когда вызывать, когда нет, что вернёт (≤ 500)
 	Path        string // /diag/…, параметры пути — {name}
 	Params      map[string]Param
 	Timeout     time.Duration
-	// RowsPath — где в ответе список (для лимита строк на стороне pulse)
+	// RowsPath — где в ответе список (для лимита строк на стороне pulse); MaxRows — сколько
+	// строк показать агенту (по умолчанию 50, не больше 100)
 	RowsPath string
+	MaxRows  int
 }
 
 // Error — ошибка ручки для человека: {"error": Message} с HTTP-статусом (по умолчанию 500).
@@ -50,11 +58,21 @@ type endpointDecl struct {
 	response *schema
 }
 
+type requestIdKey struct{}
+
+// RequestId — X-Pulse-Request-Id вызова ручки (пусто — вызвал не pulse): для своих строк лога.
+func RequestId(ctx context.Context) string {
+	id, _ := ctx.Value(requestIdKey{}).(string)
+	return id
+}
+
 var paramPathRe = regexp.MustCompile(`\{([a-zA-Z][a-zA-Z0-9_]*)\}`)
 
 // Handle объявляет ручку: схема ответа — из типа T (json-теги, `pulse:"personal=phone"`).
-// fn получает проверенные параметры; ошибка типа Error — её статус и текст, иначе 500 и
-// «внутренняя ошибка» (текст ошибки наружу не уходит: в нём бывают строки подключения).
+// fn получает проверенные параметры и контекст с RequestId; ошибка типа Error — её статус и
+// текст, иначе 500 и «внутренняя ошибка» (текст ошибки наружу не уходит: в нём бывают строки
+// подключения; в лог сервиса — уходит). Каждый вызов пишется в лог: ручка, X-Pulse-Request-Id,
+// параметры (персональные — только вид), статус, время.
 func Handle[T any](k *Kit, e Endpoint, fn func(ctx context.Context, params map[string]string) (T, error)) {
 	validateEndpoint(e)
 	var zero T
@@ -65,29 +83,52 @@ func Handle[T any](k *Kit, e Endpoint, fn func(ctx context.Context, params map[s
 	k.endpoints = append(k.endpoints, endpointDecl{Endpoint: e, response: response})
 	pattern := paramPathRe.ReplaceAllString(e.Path, "{$1}")
 	k.handlers[pattern] = func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		requestId := r.Header.Get(RequestIdHeader)
 		params, err := readParams(e, r)
+		status := http.StatusOK
+		defer func() {
+			slog.Info("pulse endpoint", "endpoint", e.Id, "request_id", requestId, "params", logParams(e, params),
+				"status", status, "duration_ms", time.Since(started).Milliseconds())
+		}()
 		if err != nil {
-			writeJson(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			status = http.StatusBadRequest
+			writeJson(w, status, map[string]string{"error": err.Error()})
 			return
 		}
 		timeout := e.Timeout
 		if timeout <= 0 {
 			timeout = 5 * time.Second
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), requestIdKey{}, requestId), timeout)
 		defer cancel()
 
 		result, err := fn(ctx, params)
 		if err != nil {
 			if e, ok := errors.AsType[Error](err); ok {
-				writeJson(w, cmpOr(e.Status, http.StatusInternalServerError), map[string]string{"error": e.Message})
+				status = cmpOr(e.Status, http.StatusInternalServerError)
+				writeJson(w, status, map[string]string{"error": e.Message})
 				return
 			}
-			writeJson(w, http.StatusInternalServerError, map[string]string{"error": "внутренняя ошибка"})
+			status = http.StatusInternalServerError
+			slog.Error("pulse endpoint failed", "endpoint", e.Id, "request_id", requestId, "error", err)
+			writeJson(w, status, map[string]string{"error": "внутренняя ошибка"})
 			return
 		}
-		writeJson(w, http.StatusOK, result)
+		writeJson(w, status, result)
 	}
+}
+
+// logParams — параметры для лога: персональные — только вид.
+func logParams(e Endpoint, params map[string]string) map[string]string {
+	result := make(map[string]string, len(params))
+	for name, value := range params {
+		if kind := e.Params[name].Personal; kind != "" {
+			value = "<" + kind + ">"
+		}
+		result[name] = value
+	}
+	return result
 }
 
 func validateEndpoint(e Endpoint) {
@@ -97,8 +138,13 @@ func validateEndpoint(e Endpoint) {
 	if e.Title == "" || e.Description == "" {
 		panic(fmt.Sprintf("pulsekit: endpoint %s: Title and Description are required (Description — for the agent: when to call)", e.Id))
 	}
+	checkText("endpoint "+e.Id+" title", e.Title, maxTitleChars)
+	checkText("endpoint "+e.Id+" description", e.Description, maxTextChars)
 	if !strings.HasPrefix(e.Path, "/") || strings.Contains(e.Path, "..") || strings.ContainsAny(e.Path, "?#") {
 		panic(fmt.Sprintf("pulsekit: endpoint %s: path %q", e.Id, e.Path))
+	}
+	if e.MaxRows < 0 || e.MaxRows > 100 {
+		panic(fmt.Sprintf("pulsekit: endpoint %s: MaxRows %d: expected 1..100 (0 — default 50)", e.Id, e.MaxRows))
 	}
 	for _, m := range paramPathRe.FindAllStringSubmatch(e.Path, -1) {
 		if _, ok := e.Params[m[1]]; !ok {
@@ -109,12 +155,41 @@ func validateEndpoint(e Endpoint) {
 		if secretRe.MatchString(name) {
 			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q looks like a secret", e.Id, name))
 		}
+		if !slices.Contains([]string{"string", "integer", "number", "boolean"}, cmpOr(p.Type, "string")) {
+			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q: type %q", e.Id, name, p.Type))
+		}
+		if p.Personal != "" && (!slices.Contains(personalKinds, p.Personal) || p.Personal == "card" || cmpOr(p.Type, "string") != "string") {
+			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q: personal %q — a string of a searchable kind (phone, email, iin, customer_id…; not card)", e.Id, name, p.Personal))
+		}
 		if cmpOr(p.Type, "string") == "string" && p.Pattern == "" && len(p.Enum) == 0 && p.Personal == "" {
 			panic(fmt.Sprintf("pulsekit: endpoint %s: string parameter %q needs Pattern, Enum or Personal", e.Id, name))
 		}
 		if p.Pattern != "" {
 			regexp.MustCompile(p.Pattern)
 		}
+		if _, err := typedDefault(p); err != nil {
+			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q: default %q: %s", e.Id, name, p.Default, err))
+		}
+		checkText("endpoint "+e.Id+" parameter "+name+" description", p.Description, maxTextChars)
+	}
+}
+
+// typedDefault — Default в типе параметра: число у integer/number, bool у boolean.
+func typedDefault(p Param) (any, error) {
+	if p.Default == "" {
+		return nil, nil
+	}
+	switch cmpOr(p.Type, "string") {
+	case "integer", "number":
+		num, err := strconv.ParseFloat(p.Default, 64)
+		if err != nil || (p.Type == "integer" && num != float64(int64(num))) {
+			return nil, fmt.Errorf("not a %s", p.Type)
+		}
+		return num, nil
+	case "boolean":
+		return strconv.ParseBool(p.Default)
+	default:
+		return p.Default, nil
 	}
 }
 

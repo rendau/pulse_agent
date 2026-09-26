@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"net/url"
 	"time"
 
 	"github.com/mechta-market/pulse_agent/internal/constant"
@@ -79,13 +78,4 @@ func handleQuestionStats(kit *pulsekit.Kit, monitor *usecaseMonitorP.Usecase) {
 		}
 		return rep, nil
 	})
-}
-
-// hostOf — хост адреса для target зависимости: без схемы, пути и учётных данных.
-func hostOf(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw
-	}
-	return u.Host
 }

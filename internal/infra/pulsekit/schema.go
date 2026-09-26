@@ -3,6 +3,7 @@ package pulsekit
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ type schema struct {
 	Properties           map[string]*schema `json:"properties,omitempty"`
 	Items                *schema            `json:"items,omitempty"`
 	AdditionalProperties *schema            `json:"additionalProperties,omitempty"`
+	Enum                 []string           `json:"enum,omitempty"`
 	Format               string             `json:"format,omitempty"`
 	MaxLength            int                `json:"maxLength,omitempty"`
 	MaxItems             int                `json:"maxItems,omitempty"`
@@ -28,8 +30,12 @@ func zeroType(v any) reflect.Type {
 }
 
 // schemaOf строит схему ответа из Go-типа: struct — object (поля по json-тегам), slice — array,
-// map[string]число/bool — словарь, time.Time — date-time. Теги поля:
-// `pulse:"personal=phone,maxLength=300,maxItems=50,description=…"`. Поле, похожее на секрет, —
+// map[string]число/bool — словарь, time.Time — date-time (RFC 3339 со смещением; UTC — «Z»,
+// это тоже по стандарту), указатель — то же поле, nil — null («нет значения»). Теги поля:
+//
+//	`pulse:"personal=phone,maxLength=300,maxItems=50,enum=new|paid|shipped,description=…"`
+//
+// description — последним: всё до конца тега, запятые можно. Поле, похожее на секрет, —
 // паника: стандарт такие поля запрещает.
 func schemaOf(t reflect.Type, path string) *schema {
 	for t.Kind() == reflect.Pointer {
@@ -56,7 +62,7 @@ func schemaOf(t reflect.Type, path string) *schema {
 				panic(fmt.Sprintf("pulsekit: %s.%s: field name looks like a secret — forbidden by the manifest standard", path, name))
 			}
 			child := schemaOf(f.Type, path+"."+name)
-			applyTag(child, f.Tag.Get("pulse"))
+			applyTag(child, f.Tag.Get("pulse"), path+"."+name)
 			result.Properties[name] = child
 		}
 		return result
@@ -81,21 +87,44 @@ func schemaOf(t reflect.Type, path string) *schema {
 	}
 }
 
-func applyTag(s *schema, tag string) {
-	if tag == "" {
-		return
-	}
-	for _, part := range strings.Split(tag, ",") {
+func applyTag(s *schema, tag, path string) {
+	for tag != "" {
+		var part string
+		if strings.HasPrefix(strings.TrimSpace(tag), "description=") {
+			part, tag = strings.TrimSpace(tag), "" // описание — до конца тега, с запятыми
+		} else {
+			part, tag, _ = strings.Cut(tag, ",")
+		}
 		key, value, _ := strings.Cut(strings.TrimSpace(part), "=")
+		var err error
 		switch key {
 		case "personal":
 			s.Personal = value
 		case "maxLength":
-			s.MaxLength, _ = strconv.Atoi(value)
+			s.MaxLength, err = strconv.Atoi(value)
 		case "maxItems":
-			s.MaxItems, _ = strconv.Atoi(value)
+			s.MaxItems, err = strconv.Atoi(value)
+		case "enum":
+			s.Enum = strings.Split(value, "|")
 		case "description":
 			s.Description = value
+			checkText(path+" description", value, maxTextChars)
+		case "":
+		default:
+			err = fmt.Errorf("unknown key %q", key)
 		}
+		if err != nil {
+			panic(fmt.Sprintf("pulsekit: %s: tag pulse: %s", path, err))
+		}
+	}
+	switch {
+	case s.Personal != "" && !slices.Contains(personalKinds, s.Personal):
+		panic(fmt.Sprintf("pulsekit: %s: personal %q: expected one of %s", path, s.Personal, strings.Join(personalKinds, ", ")))
+	case s.Personal != "" && s.Type != "string" && s.Type != "integer":
+		panic(fmt.Sprintf("pulsekit: %s: personal is allowed only on strings and integers", path))
+	case len(s.Enum) > 0 && s.Type != "string":
+		panic(fmt.Sprintf("pulsekit: %s: enum is allowed only on strings", path))
+	case s.MaxLength > 0 && s.Type != "string", s.MaxItems > 0 && s.Type != "array":
+		panic(fmt.Sprintf("pulsekit: %s: maxLength is for strings, maxItems — for slices", path))
 	}
 }
