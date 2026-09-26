@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -251,47 +252,60 @@ func TestHost(t *testing.T) {
 	}
 }
 
+// Нарушение стандарта не роняет сервис: элемент не публикуется, причина — в Problems; длинный
+// текст — только предупреждение.
 func TestRegistrationRules(t *testing.T) {
 	k := New(Config{}, testService, Build{})
-	handle := func(e Endpoint) func() {
-		return func() {
-			Handle(k, e, func(context.Context, map[string]string) (int, error) { return 0, nil })
-		}
+	ok := func(context.Context, map[string]string) (int, error) { return 0, nil }
+	register := func() {
+		Handle(k, Endpoint{Id: "free", Title: "x", Description: "x", Path: "/free", Params: map[string]Param{"q": {}}}, ok)
+		Handle(k, Endpoint{Id: "bad_default", Title: "x", Description: "x", Path: "/d", Params: map[string]Param{"n": {Type: "integer", Default: "двадцать"}}}, ok)
+		Handle(k, Endpoint{Id: "card", Title: "x", Description: "x", Path: "/c", Params: map[string]Param{"p": {Personal: "card"}}}, ok)
+		Handle(k, Endpoint{Id: "secret_field", Title: "y", Description: "y", Path: "/y"},
+			func(context.Context, map[string]string) (struct {
+				Token string `json:"access_token"`
+			}, error) {
+				return struct {
+					Token string `json:"access_token"`
+				}{}, nil
+			})
+		Handle(k, Endpoint{Id: "long", Title: "x", Description: strings.Repeat("д", 1001), Path: "/long"}, ok)
+		Handle(k, Endpoint{Id: "long", Title: "x", Description: "дубль", Path: "/long2"}, ok)
+		k.Metric(Metric{Id: "m", Title: "m", PromQL: "up", Unit: "percent"})
+		k.ErrorPattern("x", "(?=lookahead)")
+		k.Depend("Bad-Id", "postgres", "pg", true, ok0).Affects("всё")
+		k.Depend("s3", "s3", "minio", false, ok0).Affects(strings.Repeat("д", 101))
+		k.Depend("pg", "postgres", "user:pass@pg", true, ok0)
+		k.Depend("pg2", "postgres", "host=pg password=x", true, ok0)
 	}
-	assert.Panics(t, handle(Endpoint{Id: "x", Title: "x", Description: "x", Path: "/x", Params: map[string]Param{"q": {}}}), "свободная строка")
-	assert.Panics(t, handle(Endpoint{Id: "x", Title: "x", Description: strings.Repeat("д", 501), Path: "/x"}), "описание длиннее 500")
-	assert.Panics(t, handle(Endpoint{Id: "x", Title: "x", Description: "x", Path: "/x", Params: map[string]Param{"n": {Type: "integer", Default: "двадцать"}}}), "default не в типе")
-	assert.Panics(t, handle(Endpoint{Id: "x", Title: "x", Description: "x", Path: "/x", Params: map[string]Param{"p": {Personal: "card"}}}), "по карте не ищут")
-	assert.Panics(t, func() {
-		type rep struct {
-			Token string `json:"access_token"`
-		}
-		Handle(k, Endpoint{Id: "y", Title: "y", Description: "y", Path: "/y"},
-			func(context.Context, map[string]string) (rep, error) { return rep{}, nil })
-	}, "поле-секрет")
-	assert.Panics(t, func() {
-		type rep struct {
-			Phone string `json:"phone" pulse:"personal=telephone"`
-		}
-		Handle(k, Endpoint{Id: "z", Title: "z", Description: "z", Path: "/z"},
-			func(context.Context, map[string]string) (rep, error) { return rep{}, nil })
-	}, "неизвестный вид")
-	assert.Panics(t, func() { New(Config{}, Service{}, Build{}) }, "сведения о сервисе обязательны")
-	assert.Panics(t, func() { k.Metric(Metric{Id: "m", Title: "m", PromQL: "up", Unit: "percent"}) }, "unit не из стандарта")
-	assert.Panics(t, func() { k.ErrorPattern("x", "(?=lookahead)") }, "не RE2")
-	assert.Panics(t, func() {
-		k.Depend("s3", "s3", "minio", false, func(context.Context) error { return nil }).Affects(strings.Repeat("д", 101))
-	}, "affects длиннее 100")
+	require.NotPanics(t, register, "сервис не падает из-за манифеста")
 
-	k.Depend("pg", "postgres", "user:pass@pg", true, func(context.Context) error { return nil })
-	k.Depend("pg2", "postgres", "host=pg password=x", true, func(context.Context) error { return nil })
+	problems := strings.Join(k.Problems(), "\n")
+	for _, want := range []string{"needs Pattern, Enum or Personal", `default "двадцать"`, `personal "card"`,
+		"looks like a secret", "id is already declared", `unit "percent"`, "not an RE2 regexp", `dependency id "Bad-Id"`} {
+		assert.Contains(t, problems, want)
+	}
+	assert.Len(t, k.Problems(), 8)
+
+	m := k.Manifest()
+	assert.Equal(t, []string{"long"}, lo.Map(m.Endpoints, func(e endpointRep, _ int) string { return e.Id }), "опубликована только ручка с длинным описанием")
+	assert.Empty(t, m.Metrics)
+	assert.Nil(t, m.Logs)
 	targets := map[string]string{}
-	for _, d := range k.Manifest().Dependencies {
+	for _, d := range m.Dependencies {
 		targets[d.Id] = d.Target
 	}
-	assert.Equal(t, "unknown", targets["pg"], "учётные данные в target — не в манифест, сервис не падает")
-	assert.Equal(t, "unknown", targets["pg2"])
+	assert.Equal(t, map[string]string{"s3": "minio", "pg": "unknown", "pg2": "unknown"}, targets, "учётные данные в target — unknown")
+	require.Error(t, k.CheckEndpoint("free", nil), "неопубликованная ручка — видно и в тесте ручки")
+
+	warnings := strings.Join(k.Warnings(), "\n")
+	assert.Contains(t, warnings, "endpoint long description is 1001 characters, the standard allows 1000")
+	assert.Contains(t, warnings, "dependency s3 affects is 101 characters")
+
+	assert.NotPanics(t, func() { New(Config{}, Service{}, Build{}) })
 }
+
+func ok0(context.Context) error { return nil }
 
 func TestDescribe(t *testing.T) {
 	for text, want := range map[string]string{
@@ -324,7 +338,7 @@ func TestEnumFromType(t *testing.T) {
 		Tagged  reasonCode `json:"tagged" pulse:"enum=a|b"`
 		Reasons []reasonCode
 	}
-	s := schemaOf(zeroType(rep{}), "rep")
+	s := schemaOf(zeroType(rep{}), "rep", nil)
 	assert.Equal(t, []string{"no_stock", "unpaid"}, s.Properties["reason"].Enum, "перечень — из типа")
 	assert.Equal(t, []string{"a", "b"}, s.Properties["tagged"].Enum, "тег — вместо типа")
 	assert.Equal(t, []string{"no_stock", "unpaid"}, s.Properties["Reasons"].Items.Enum)

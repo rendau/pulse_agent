@@ -35,7 +35,7 @@ type Param struct {
 type Endpoint struct {
 	Id          string
 	Title       string // ≤ 100
-	Description string // для агента: когда вызывать, когда нет, что вернёт (≤ 500)
+	Description string // для агента: когда вызывать, когда нет, что вернёт (≤ 1000)
 	Path        string // /diag/…, параметры пути — {name}
 	Params      map[string]Param
 	Timeout     time.Duration
@@ -73,13 +73,18 @@ var paramPathRe = regexp.MustCompile(`\{([a-zA-Z][a-zA-Z0-9_]*)\}`)
 // текст, иначе 500 и «внутренняя ошибка» (текст ошибки наружу не уходит: в нём бывают строки
 // подключения; в лог сервиса — уходит). Каждый вызов пишется в лог: ручка, X-Pulse-Request-Id,
 // параметры (персональные — только вид), статус, время.
+// Нарушение стандарта в объявлении — ручка не публикуется (Problems), сервис работает дальше.
 func Handle[T any](k *Kit, e Endpoint, fn func(ctx context.Context, params map[string]string) (T, error)) {
-	validateEndpoint(e)
+	defer k.catch()
+	k.validateEndpoint(e)
 	var zero T
-	response := schemaOf(zeroType(zero), e.Id)
+	response := schemaOf(zeroType(zero), e.Id, k.warn)
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if slices.ContainsFunc(k.endpoints, func(d endpointDecl) bool { return d.Id == e.Id }) {
+		fail("endpoint %s: id is already declared — not published", e.Id)
+	}
 	k.endpoints = append(k.endpoints, endpointDecl{Endpoint: e, response: response})
 	pattern := paramPathRe.ReplaceAllString(e.Path, "{$1}")
 	k.handlers[pattern] = func(w http.ResponseWriter, r *http.Request) {
@@ -131,47 +136,51 @@ func logParams(e Endpoint, params map[string]string) map[string]string {
 	return result
 }
 
-func validateEndpoint(e Endpoint) {
+// validateEndpoint — правила стандарта: нарушение — fail (ручка не публикуется), длинный
+// текст — предупреждение.
+func (k *Kit) validateEndpoint(e Endpoint) {
 	if !idRe.MatchString(e.Id) {
-		panic(fmt.Sprintf("pulsekit: endpoint id %q: expected %s", e.Id, idRe))
+		fail("endpoint id %q: expected %s — not published", e.Id, idRe)
 	}
 	if e.Title == "" || e.Description == "" {
-		panic(fmt.Sprintf("pulsekit: endpoint %s: Title and Description are required (Description — for the agent: when to call)", e.Id))
+		fail("endpoint %s: Title and Description are required (Description — for the agent: when to call) — not published", e.Id)
 	}
-	checkText("endpoint "+e.Id+" title", e.Title, maxTitleChars)
-	checkText("endpoint "+e.Id+" description", e.Description, maxTextChars)
 	if !strings.HasPrefix(e.Path, "/") || strings.Contains(e.Path, "..") || strings.ContainsAny(e.Path, "?#") {
-		panic(fmt.Sprintf("pulsekit: endpoint %s: path %q", e.Id, e.Path))
+		fail("endpoint %s: path %q — not published", e.Id, e.Path)
 	}
 	if e.MaxRows < 0 || e.MaxRows > 100 {
-		panic(fmt.Sprintf("pulsekit: endpoint %s: MaxRows %d: expected 1..100 (0 — default 50)", e.Id, e.MaxRows))
+		fail("endpoint %s: MaxRows %d: expected 1..100 (0 — default 50) — not published", e.Id, e.MaxRows)
 	}
 	for _, m := range paramPathRe.FindAllStringSubmatch(e.Path, -1) {
 		if _, ok := e.Params[m[1]]; !ok {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: path parameter %s is not declared", e.Id, m[0]))
+			fail("endpoint %s: path parameter %s is not declared — not published", e.Id, m[0])
 		}
 	}
 	for name, p := range e.Params {
 		if secretRe.MatchString(name) {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q looks like a secret", e.Id, name))
+			fail("endpoint %s: parameter %q looks like a secret — not published", e.Id, name)
 		}
 		if !slices.Contains([]string{"string", "integer", "number", "boolean"}, cmpOr(p.Type, "string")) {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q: type %q", e.Id, name, p.Type))
+			fail("endpoint %s: parameter %q: type %q — not published", e.Id, name, p.Type)
 		}
 		if p.Personal != "" && (!slices.Contains(personalKinds, p.Personal) || p.Personal == "card" || cmpOr(p.Type, "string") != "string") {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q: personal %q — a string of a searchable kind (phone, email, iin, customer_id…; not card)", e.Id, name, p.Personal))
+			fail("endpoint %s: parameter %q: personal %q — a string of a searchable kind (phone, email, iin, customer_id…; not card) — not published", e.Id, name, p.Personal)
 		}
 		if cmpOr(p.Type, "string") == "string" && p.Pattern == "" && len(p.Enum) == 0 && p.Personal == "" {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: string parameter %q needs Pattern, Enum or Personal", e.Id, name))
+			fail("endpoint %s: string parameter %q needs Pattern, Enum or Personal — not published", e.Id, name)
 		}
 		if p.Pattern != "" {
-			regexp.MustCompile(p.Pattern)
+			if _, err := regexp.Compile(p.Pattern); err != nil {
+				fail("endpoint %s: parameter %q: pattern is not an RE2 regexp: %s — not published", e.Id, name, err)
+			}
 		}
 		if _, err := typedDefault(p); err != nil {
-			panic(fmt.Sprintf("pulsekit: endpoint %s: parameter %q: default %q: %s", e.Id, name, p.Default, err))
+			fail("endpoint %s: parameter %q: default %q: %s — not published", e.Id, name, p.Default, err)
 		}
-		checkText("endpoint "+e.Id+" parameter "+name+" description", p.Description, maxTextChars)
+		k.checkText("endpoint "+e.Id+" parameter "+name+" description", p.Description, maxTextChars)
 	}
+	k.checkText("endpoint "+e.Id+" title", e.Title, maxTitleChars)
+	k.checkText("endpoint "+e.Id+" description", e.Description, maxEndpointDescChars)
 }
 
 // typedDefault — Default в типе параметра: число у integer/number, bool у boolean.

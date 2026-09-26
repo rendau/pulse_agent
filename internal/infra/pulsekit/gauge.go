@@ -2,7 +2,6 @@ package pulsekit
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -45,14 +44,15 @@ type gaugeReading struct {
 }
 
 func (k *Kit) addGauge(id, title, unit string, read func(ctx context.Context) (any, string, error)) {
+	defer k.catch()
 	if !idRe.MatchString(id) || title == "" {
-		panic(fmt.Sprintf("pulsekit: gauge %q: Id (%s) and title are required", id, idRe))
+		fail("gauge %q: Id (%s) and title are required — not published", id, idRe)
 	}
-	checkText("gauge "+id+" title", title, maxTitleChars)
+	k.checkText("gauge "+id+" title", title, maxTitleChars)
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if len(k.gauges) >= maxGauges {
-		panic(fmt.Sprintf("pulsekit: more than %d gauges", maxGauges))
+		fail("gauge %s: more than %d gauges — not published", id, maxGauges)
 	}
 	k.gauges = append(k.gauges, &gauge{id: id, title: title, unit: unit, readFn: read})
 }

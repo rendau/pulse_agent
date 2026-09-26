@@ -9,8 +9,10 @@
 // Поля ответа с тегом `pulse:"personal=phone"` помечаются x-personal: значение отдаётся как есть,
 // от модели его прячет pulse_agent. Строковому параметру нужен Pattern, Enum или Personal —
 // свободная строка запрещена стандартом. Нарушения стандарта в объявлениях — паника при
-// регистрации: ошибка видна в тестах, а не после выкатки. Значения, которые приходят из
-// окружения (адреса зависимостей), не роняют сервис: небезопасный target заменяется на unknown.
+// Нарушение стандарта при объявлении сервис не роняет: оно пишется в лог и в Problems(), а
+// неправильный элемент (ручка, метрика, зависимость) не публикуется — остальной манифест
+// работает. Длинные тексты — только предупреждение (Warnings()): pulse их обрежет. Тест
+// манифеста сервиса требует пустой Problems() — ошибка видна в тестах, а не после выкатки.
 package pulsekit
 
 import (
@@ -38,12 +40,13 @@ const (
 	StatusPath   = ManifestPath + "/status"
 )
 
-// лимиты стандарта: длиннее — pulse обрезает, поэтому pulsekit отказывает сразу
+// лимиты стандарта: длиннее — pulse обрезает (pulsekit предупреждает)
 const (
-	maxTitleChars = 100
-	maxTextChars  = 500
-	maxMetrics    = 20
-	maxGauges     = 20
+	maxTitleChars        = 100
+	maxTextChars         = 500
+	maxEndpointDescChars = 1000 // описание ручки: на нём держится выбор агента
+	maxMetrics           = 20
+	maxGauges            = 20
 )
 
 // Service — кто я. Name, Title (≤ 100), Description (≤ 500), OwnerTeam, Criticality обязательны.
@@ -111,6 +114,8 @@ type Kit struct {
 	endpoints     []endpointDecl
 	handlers      map[string]http.HandlerFunc
 	checkedAt     time.Time
+	problems      []string
+	warnings      []string
 
 	wg sync.WaitGroup
 }
@@ -155,24 +160,81 @@ func New(conf Config, service Service, build Build) *Kit {
 	if conf.SlowAfter <= 0 {
 		conf.SlowAfter = 2 * time.Second
 	}
-	validateService(service)
-	return &Kit{conf: conf, service: service, build: build, handlers: map[string]http.HandlerFunc{}}
+	k := &Kit{conf: conf, build: build, handlers: map[string]http.HandlerFunc{}}
+	k.service = k.validateService(service)
+	return k
 }
 
-func validateService(s Service) {
-	switch {
-	case s.Name == "" || s.Title == "" || s.Description == "" || s.OwnerTeam == "":
-		panic("pulsekit: service Name, Title, Description and OwnerTeam are required")
-	case !slices.Contains(criticalities, s.Criticality):
-		panic(fmt.Sprintf("pulsekit: service criticality %q: expected high, medium or low", s.Criticality))
+// validateService — сведения о сервисе: без обязательных pulse не примет манифест (в Problems);
+// неправильная инструкция не публикуется.
+func (k *Kit) validateService(s Service) Service {
+	if s.Name == "" || s.Title == "" || s.Description == "" || s.OwnerTeam == "" {
+		k.problem("service Name, Title, Description and OwnerTeam are required — pulse will not accept the manifest")
 	}
-	checkText("service title", s.Title, maxTitleChars)
-	checkText("service description", s.Description, maxTextChars)
+	if !slices.Contains(criticalities, s.Criticality) {
+		k.problem(fmt.Sprintf("service criticality %q: expected high, medium or low — pulse will not accept the manifest", s.Criticality))
+	}
+	k.checkText("service title", s.Title, maxTitleChars)
+	k.checkText("service description", s.Description, maxTextChars)
+	runbooks := make([]Runbook, 0, len(s.Runbooks))
 	for _, r := range s.Runbooks {
 		if u, err := url.Parse(r.Url); r.Title == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			panic(fmt.Sprintf("pulsekit: runbook %q: Title and http(s) Url are required", r.Title))
+			k.problem(fmt.Sprintf("runbook %q: Title and http(s) Url are required — not published", r.Title))
+			continue
 		}
-		checkText("runbook title", r.Title, maxTitleChars)
+		k.checkText("runbook title", r.Title, maxTitleChars)
+		runbooks = append(runbooks, r)
+	}
+	s.Runbooks = runbooks
+	return s
+}
+
+// Problems — нарушения стандарта при объявлении: такие элементы не опубликованы. Тест манифеста
+// сервиса требует пустой список.
+func (k *Kit) Problems() []string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return slices.Clone(k.problems)
+}
+
+// Warnings — тексты длиннее лимитов стандарта: опубликованы, pulse их обрежет.
+func (k *Kit) Warnings() []string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return slices.Clone(k.warnings)
+}
+
+func (k *Kit) problem(msg string) {
+	slog.Error("pulsekit: manifest problem, the item is not published", "problem", msg)
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.problems = append(k.problems, msg)
+}
+
+func (k *Kit) warn(msg string) {
+	slog.Warn("pulsekit: manifest warning", "warning", msg)
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.warnings = append(k.warnings, msg)
+}
+
+// violation — нарушение стандарта внутри объявления: прерывает его (fail) и попадает в
+// Problems через catch; сервис при этом не падает.
+type violation string
+
+func fail(format string, args ...any) {
+	panic(violation(fmt.Sprintf(format, args...)))
+}
+
+// catch — в начале каждого объявления: нарушение — в Problems, элемент не публикуется. Другие
+// паники (ошибка в самом pulsekit) не глотаются.
+func (k *Kit) catch() {
+	if r := recover(); r != nil {
+		v, ok := r.(violation)
+		if !ok {
+			panic(r)
+		}
+		k.problem(string(v))
 	}
 }
 
@@ -184,10 +246,10 @@ func cut(s string, n int) string {
 	return s
 }
 
-// checkText — текст не длиннее лимита стандарта: pulse обрезал бы его молча.
-func checkText(what, text string, limit int) {
+// checkText — текст длиннее лимита стандарта: предупреждение (pulse его обрежет).
+func (k *Kit) checkText(what, text string, limit int) {
 	if n := utf8.RuneCountInString(strings.TrimSpace(text)); n > limit {
-		panic(fmt.Sprintf("pulsekit: %s is %d characters, the standard allows %d (pulse would cut it)", what, n, limit))
+		k.warn(fmt.Sprintf("%s is %d characters, the standard allows %d — pulse will cut it", what, n, limit))
 	}
 }
 
@@ -197,23 +259,26 @@ func checkText(what, text string, limit int) {
 // target с учётными данными или похожий на строку подключения не попадает в манифест: вместо
 // него — unknown и предупреждение в лог (адрес приходит из окружения — ронять сервис нельзя).
 // Проверка может вернуть Problem — свой статус и сообщение (так делает Passive).
-func (k *Kit) Depend(id, kind, target string, critical bool, check Check) *DependencyDecl {
-	if !idRe.MatchString(id) {
-		panic(fmt.Sprintf("pulsekit: dependency id %q: expected %s", id, idRe))
+func (k *Kit) Depend(id, kind, target string, critical bool, check Check) (decl *DependencyDecl) {
+	d := &dependency{Id: id, Kind: kind, Target: strings.TrimSpace(target), Critical: critical, check: check}
+	decl = &DependencyDecl{k: k, d: d} // и у неопубликованной: .Affects после неё не падает
+	defer k.catch()
+	switch {
+	case !idRe.MatchString(id):
+		fail("dependency id %q: expected %s — not published", id, idRe)
+	case !slices.Contains(dependencyKinds, kind):
+		fail("dependency %s: kind %q: expected one of %s — not published", id, kind, strings.Join(dependencyKinds, ", "))
+	case check == nil:
+		fail("dependency %s: check is nil — not published", id)
 	}
-	if !slices.Contains(dependencyKinds, kind) {
-		panic(fmt.Sprintf("pulsekit: dependency %s: kind %q: expected one of %s", id, kind, strings.Join(dependencyKinds, ", ")))
-	}
-	target = strings.TrimSpace(target)
-	if target == "" || strings.ContainsAny(target, "@=") || userinfoRe.MatchString(target) || strings.Contains(strings.ToLower(target), "password") {
+	if d.Target == "" || strings.ContainsAny(d.Target, "@=") || userinfoRe.MatchString(d.Target) || strings.Contains(strings.ToLower(d.Target), "password") {
 		slog.Warn("pulsekit: dependency target is empty or looks like a connection string — replaced with unknown (use pulsekit.Host)", "dependency", id)
-		target = "unknown"
+		d.Target = "unknown"
 	}
-	d := &dependency{Id: id, Kind: kind, Target: target, Critical: critical, check: check}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.deps = append(k.deps, d)
-	return &DependencyDecl{k: k, d: d}
+	return decl
 }
 
 // DependencyDecl — объявленная зависимость: уточнения цепочкой после Depend.
@@ -225,7 +290,7 @@ type DependencyDecl struct {
 // Affects — что ломается, когда зависимость недоступна («выдача заказов», ≤ 100): critical
 // говорит только «весь сервис down или нет», агенту нужно последствие.
 func (d *DependencyDecl) Affects(what string) *DependencyDecl {
-	checkText("dependency "+d.d.Id+" affects", what, maxTitleChars)
+	d.k.checkText("dependency "+d.d.Id+" affects", what, maxTitleChars)
 	d.k.mu.Lock()
 	defer d.k.mu.Unlock()
 	d.d.affects = strings.TrimSpace(what)
@@ -244,19 +309,20 @@ func (p Problem) Error() string { return p.Status + ": " + p.Message }
 
 // Metric объявляет свою метрику (если стандартных rps, ошибок и задержки недостаточно).
 func (k *Kit) Metric(m Metric) {
+	defer k.catch()
 	switch {
 	case !idRe.MatchString(m.Id) || strings.TrimSpace(m.PromQL) == "" || m.Title == "":
-		panic(fmt.Sprintf("pulsekit: metric %q: Id (%s), Title and PromQL are required", m.Id, idRe))
+		fail("metric %q: Id (%s), Title and PromQL are required — not published", m.Id, idRe)
 	case !slices.Contains(metricUnits, m.Unit):
-		panic(fmt.Sprintf("pulsekit: metric %s: unit %q: expected count, ratio, seconds, bytes or rps", m.Id, m.Unit))
+		fail("metric %s: unit %q: expected count, ratio, seconds, bytes or rps — not published", m.Id, m.Unit)
 	case !slices.Contains(directions, m.Direction):
-		panic(fmt.Sprintf("pulsekit: metric %s: direction %q: expected higher_is_better or lower_is_better", m.Id, m.Direction))
+		fail("metric %s: direction %q: expected higher_is_better or lower_is_better — not published", m.Id, m.Direction)
 	}
-	checkText("metric "+m.Id+" title", m.Title, maxTitleChars)
+	k.checkText("metric "+m.Id+" title", m.Title, maxTitleChars)
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if len(k.metrics) >= maxMetrics {
-		panic(fmt.Sprintf("pulsekit: more than %d metrics", maxMetrics))
+		fail("metric %s: more than %d metrics — not published", m.Id, maxMetrics)
 	}
 	k.metrics = append(k.metrics, m)
 }
@@ -264,11 +330,14 @@ func (k *Kit) Metric(m Metric) {
 // ErrorPattern объявляет узнаваемую ошибку в логах: name — как её назовёт агент, pattern —
 // регэксп RE2 (его исполняет pulse на строках логов сервиса).
 func (k *Kit) ErrorPattern(name, pattern string) {
+	defer k.catch()
 	if name == "" || pattern == "" {
-		panic("pulsekit: error pattern: name and pattern are required")
+		fail("error pattern %q: name and pattern are required — not published", name)
 	}
-	regexp.MustCompile(pattern)
-	checkText("error pattern name", name, maxTitleChars)
+	if _, err := regexp.Compile(pattern); err != nil {
+		fail("error pattern %q: not an RE2 regexp: %s — not published", name, err)
+	}
+	k.checkText("error pattern name", name, maxTitleChars)
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.errorPatterns = append(k.errorPatterns, errorPattern{Name: name, Pattern: pattern})

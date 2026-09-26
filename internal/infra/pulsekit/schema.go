@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // schema — подмножество JSON Schema стандарта манифеста.
@@ -48,9 +49,9 @@ func zeroType(v any) reflect.Type {
 //
 //	`pulse:"personal=phone,maxLength=300,maxItems=50,enum=new|paid|shipped,description=…"`
 //
-// description — последним: всё до конца тега, запятые можно. Поле, похожее на секрет, —
-// паника: стандарт такие поля запрещает.
-func schemaOf(t reflect.Type, path string) *schema {
+// description — последним: всё до конца тега, запятые можно. Поле, похожее на секрет, — ручка
+// не публикуется: стандарт такие поля запрещает.
+func schemaOf(t reflect.Type, path string, warn func(string)) *schema {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
@@ -72,19 +73,19 @@ func schemaOf(t reflect.Type, path string) *schema {
 				name = f.Name
 			}
 			if secretRe.MatchString(name) {
-				panic(fmt.Sprintf("pulsekit: %s.%s: field name looks like a secret — forbidden by the manifest standard", path, name))
+				fail("%s.%s: field name looks like a secret — forbidden by the manifest standard — endpoint not published", path, name)
 			}
-			child := schemaOf(f.Type, path+"."+name)
-			applyTag(child, f.Tag.Get("pulse"), path+"."+name)
+			child := schemaOf(f.Type, path+"."+name, warn)
+			applyTag(child, f.Tag.Get("pulse"), path+"."+name, warn)
 			result.Properties[name] = child
 		}
 		return result
 	case t.Kind() == reflect.Slice || t.Kind() == reflect.Array:
-		return &schema{Type: "array", Items: schemaOf(t.Elem(), path+"[]")}
+		return &schema{Type: "array", Items: schemaOf(t.Elem(), path+"[]", warn)}
 	case t.Kind() == reflect.Map:
-		values := schemaOf(t.Elem(), path+"{}")
+		values := schemaOf(t.Elem(), path+"{}", warn)
 		if t.Key().Kind() != reflect.String || (values.Type != "integer" && values.Type != "number" && values.Type != "boolean") {
-			panic(fmt.Sprintf("pulsekit: %s: map is allowed only as map[string]number or map[string]bool", path))
+			fail("%s: map is allowed only as map[string]number or map[string]bool — endpoint not published", path)
 		}
 		return &schema{Type: "object", AdditionalProperties: values}
 	case t.Kind() == reflect.String:
@@ -100,11 +101,12 @@ func schemaOf(t reflect.Type, path string) *schema {
 	case t.Kind() == reflect.Float32 || t.Kind() == reflect.Float64:
 		return &schema{Type: "number"}
 	default:
-		panic(fmt.Sprintf("pulsekit: %s: type %s is not supported in a response", path, t))
+		fail("%s: type %s is not supported in a response — endpoint not published", path, t)
+		return nil
 	}
 }
 
-func applyTag(s *schema, tag, path string) {
+func applyTag(s *schema, tag, path string, warn func(string)) {
 	for tag != "" {
 		var part string
 		if strings.HasPrefix(strings.TrimSpace(tag), "description=") {
@@ -125,23 +127,25 @@ func applyTag(s *schema, tag, path string) {
 			s.Enum = strings.Split(value, "|")
 		case "description":
 			s.Description = value
-			checkText(path+" description", value, maxTextChars)
+			if n := utf8.RuneCountInString(value); n > maxTextChars && warn != nil {
+				warn(fmt.Sprintf("%s description is %d characters, the standard allows %d — pulse will cut it", path, n, maxTextChars))
+			}
 		case "":
 		default:
 			err = fmt.Errorf("unknown key %q", key)
 		}
 		if err != nil {
-			panic(fmt.Sprintf("pulsekit: %s: tag pulse: %s", path, err))
+			fail("%s: tag pulse: %s — endpoint not published", path, err)
 		}
 	}
 	switch {
 	case s.Personal != "" && !slices.Contains(personalKinds, s.Personal):
-		panic(fmt.Sprintf("pulsekit: %s: personal %q: expected one of %s", path, s.Personal, strings.Join(personalKinds, ", ")))
+		fail("%s: personal %q: expected one of %s — endpoint not published", path, s.Personal, strings.Join(personalKinds, ", "))
 	case s.Personal != "" && s.Type != "string" && s.Type != "integer":
-		panic(fmt.Sprintf("pulsekit: %s: personal is allowed only on strings and integers", path))
+		fail("%s: personal is allowed only on strings and integers — endpoint not published", path)
 	case len(s.Enum) > 0 && s.Type != "string":
-		panic(fmt.Sprintf("pulsekit: %s: enum is allowed only on strings", path))
+		fail("%s: enum is allowed only on strings — endpoint not published", path)
 	case s.MaxLength > 0 && s.Type != "string", s.MaxItems > 0 && s.Type != "array":
-		panic(fmt.Sprintf("pulsekit: %s: maxLength is for strings, maxItems — for slices", path))
+		fail("%s: maxLength is for strings, maxItems — for slices — endpoint not published", path)
 	}
 }
