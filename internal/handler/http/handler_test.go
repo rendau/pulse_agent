@@ -81,7 +81,7 @@ func newHandler(t *testing.T, ask *fakeAsk) *Handler {
 		Keys:        map[string]string{"pulse_bot": "k-bot", "service-desk": "k-sd"},
 		DebugToken:  "k-debug",
 		EvalClients: []string{"pulse_bot"},
-	}, ask, fakeMonitor{}, keeper, almaty)
+	}, ask, nil, fakeMonitor{}, keeper, almaty)
 }
 
 func serve(t *testing.T, ask *fakeAsk, path, key, body string) (*httptest.ResponseRecorder, map[string]any) {

@@ -18,26 +18,34 @@ import (
 	"github.com/mechta-market/pulse_agent/evals"
 	"github.com/mechta-market/pulse_agent/internal/config"
 	"github.com/mechta-market/pulse_agent/internal/constant"
+	domainChatRepoDbP "github.com/mechta-market/pulse_agent/internal/domain/chat/repo/db"
+	domainChatServiceP "github.com/mechta-market/pulse_agent/internal/domain/chat/service"
 	domainDialogRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/dialog/repo/mem"
 	domainDialogServiceP "github.com/mechta-market/pulse_agent/internal/domain/dialog/service"
 	domainJournalRepoDbP "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/db"
 	domainJournalRepoMemP "github.com/mechta-market/pulse_agent/internal/domain/journal/repo/mem"
 	domainJournalServiceP "github.com/mechta-market/pulse_agent/internal/domain/journal/service"
+	domainNotifyRepoDbP "github.com/mechta-market/pulse_agent/internal/domain/notify/repo/db"
+	domainNotifyServiceP "github.com/mechta-market/pulse_agent/internal/domain/notify/service"
 	"github.com/mechta-market/pulse_agent/internal/eval"
 	handlerHttpP "github.com/mechta-market/pulse_agent/internal/handler/http"
 	"github.com/mechta-market/pulse_agent/internal/infra/httpx"
 	"github.com/mechta-market/pulse_agent/internal/infra/pulsekit"
 	serviceAgentServiceP "github.com/mechta-market/pulse_agent/internal/service/agent/service"
 	serviceChartServiceP "github.com/mechta-market/pulse_agent/internal/service/chart/service"
+	serviceChattoolsServiceP "github.com/mechta-market/pulse_agent/internal/service/chattools/service"
 	"github.com/mechta-market/pulse_agent/internal/service/llm"
 	serviceLlmOpenaiServiceP "github.com/mechta-market/pulse_agent/internal/service/llm/openai/service"
 	servicePiiServiceP "github.com/mechta-market/pulse_agent/internal/service/pii/service"
 	servicePulseServiceP "github.com/mechta-market/pulse_agent/internal/service/pulse/service"
 	"github.com/mechta-market/pulse_agent/internal/service/retention"
 	serviceRetentionServiceP "github.com/mechta-market/pulse_agent/internal/service/retention/service"
+	"github.com/mechta-market/pulse_agent/internal/service/watch"
+	serviceWatchServiceP "github.com/mechta-market/pulse_agent/internal/service/watch/service"
 	usecaseAskP "github.com/mechta-market/pulse_agent/internal/usecase/ask"
 	usecaseMonitorP "github.com/mechta-market/pulse_agent/internal/usecase/monitor"
 	monitorModel "github.com/mechta-market/pulse_agent/internal/usecase/monitor/model"
+	usecaseNotifyP "github.com/mechta-market/pulse_agent/internal/usecase/notify"
 )
 
 type App struct {
@@ -45,6 +53,7 @@ type App struct {
 	pulse  *servicePulseServiceP.Service
 
 	journalRetention retention.Retention // nil — журнал в памяти
+	watch            watch.Watch         // nil — наблюдатель выключен или нет хранилища
 
 	// pulsekit — манифест агента для pulse и фоновые проверки зависимостей (ручка состояния)
 	pulsekit *pulsekit.Kit
@@ -118,13 +127,26 @@ func (a *App) Init() {
 		CountryCode: config.Conf.PiiPhoneCountryCode,
 	})
 
+	// chat, notify (контекст бесед, уведомления наблюдателя — только с хранилищем)
+	// (nil-интерфейсы, а не nil-указатели: без хранилища компоненты работают без них)
+	var chatService *domainChatServiceP.Service
+	var notifyService *domainNotifyServiceP.Service
+	var askChat usecaseAskP.ChatServiceI
+	var agentChatTools serviceAgentServiceP.ChatToolsI
+	if a.pgpool != nil {
+		chatService = domainChatServiceP.New(domainChatRepoDbP.New(a.pgpool))
+		notifyService = domainNotifyServiceP.New(domainNotifyRepoDbP.New(a.pgpool))
+		askChat = chatService
+		agentChatTools = serviceChattoolsServiceP.New(chatService, notifyService)
+	}
+
 	// agent
 	agentService := serviceAgentServiceP.New(
 		serviceAgentServiceP.Config{
 			MaxToolCalls: config.Conf.AgentMaxToolCalls,
 			Timeout:      config.Conf.AgentTimeout,
 		},
-		llmProvider, a.pulse, chartService, piiService,
+		llmProvider, a.pulse, chartService, piiService, agentChatTools,
 	)
 
 	// dialog
@@ -149,7 +171,24 @@ func (a *App) Init() {
 	}
 
 	// ask
-	askUsecase := usecaseAskP.New(dialogService, journalService, agentService, piiService)
+	askUsecase := usecaseAskP.New(askChat, dialogService, journalService, agentService, piiService)
+
+	// notify (лента для бесед клиентов) и наблюдатель
+	var notifyUsecase handlerHttpP.NotifyUsecaseI
+	if notifyService != nil {
+		notifyUsecase = usecaseNotifyP.New(chatService, notifyService)
+		if config.Conf.WatchEnabled {
+			a.watch = serviceWatchServiceP.New(serviceWatchServiceP.Config{
+				Interval:       config.Conf.WatchInterval,
+				DeployDelay:    config.Conf.WatchDeployDelay,
+				AlertRepeat:    config.Conf.WatchAlertRepeat,
+				MaxRunsPerHour: config.Conf.WatchMaxRunsPerHour,
+				Keep:           journalKeep,
+			}, a.pulse, agentService, notifyService, journalService)
+		}
+	} else {
+		slog.Warn("PG_DSN is empty: no notifications, watcher and chat context")
+	}
 
 	// eval (эталонные вопросы, вшитые в образ)
 	evalKeeper, err := eval.NewKeeper(evals.Cases, evals.Baseline, config.Conf.EvalParallel)
@@ -184,7 +223,7 @@ func (a *App) Init() {
 			DebugToken:  config.Conf.DebugToken,
 			EvalClients: config.Conf.EvalClients,
 			EvalTimeout: config.Conf.EvalTimeout,
-		}, askUsecase, monitorUsecase, evalKeeper, location)
+		}, askUsecase, notifyUsecase, monitorUsecase, evalKeeper, location)
 		a.httpServer = HttpServerCreate(config.Conf.HttpPort, handler, a.ctx)
 	}
 
@@ -221,6 +260,11 @@ func (a *App) Start() {
 	// journal retention
 	if a.journalRetention != nil {
 		a.journalRetention.Start(a.ctx)
+	}
+
+	// watch
+	if a.watch != nil {
+		a.watch.Start(a.ctx)
 	}
 
 	// http server
@@ -292,6 +336,11 @@ func (a *App) WaitJobs() {
 	// journal retention
 	if a.journalRetention != nil {
 		a.journalRetention.Wait()
+	}
+
+	// watch
+	if a.watch != nil {
+		a.watch.Wait()
 	}
 }
 

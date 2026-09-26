@@ -13,8 +13,14 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 переехали сюда, бот — тонкий клиент этого API. Согласованные отклонения от шаблона gotemplate:
 - gRPC/grpc-gateway/proto/swagger и трассировка убраны: транспорт — JSON поверх HTTP, история
   бесед — в памяти (одна реплика).
-- Postgres — только для журнала вопросов (с 2026-09-25): отдельная база `pulse_agent` в `pulse-pg`
-  (общий Postgres чарта pulse), срок хранения 90 дней. Без `PG_DSN` журнал — в памяти.
+- Postgres — журнал вопросов (с 2026-09-25), с 2026-09-26 — ещё контекст бесед, приглушения и
+  уведомления наблюдателя: отдельная база `pulse_agent` в `pulse-pg` (общий Postgres чарта pulse),
+  срок хранения 90 дней. Без `PG_DSN` журнал — в памяти, наблюдателя, ленты и заметок нет.
+- Проактивный режим (2026-09-26, решения заказчика): агент сам следит за выкатками и алертами и
+  кладёт уведомления в ленту; куда слать — решает клиент (бот: `NOTIFY_CHAT_IDS`), удобное
+  управление маршрутами — позже, через контекст беседы (подписки). Приглушение — у каждой беседы
+  своё (на время или навсегда, видно, что скрыто, можно вернуть). Персональные данные в
+  уведомлениях — как в ответах (доступ к боту только у сотрудников). Только сообщает — действий нет.
 - Ответ синхронный (асинхронного режима пока нет — решение заказчика).
 
 Конвенции этого стека вынесены в глобальные Claude Code скиллы (`golang-service`,
@@ -28,7 +34,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `cmd/main.go` — entrypoint, поднимает `internal/app.App`; `cmd/eval` — эталонные вопросы.
 - `internal/` — бизнес-логика и инфраструктура (закрытые пакеты).
 - `docs/` — контракт API (`agent-api.md`), выдаётся через `/docs/*`.
-- `migrations/` — SQL миграции журнала (golang-migrate; единый `000001_init` до первого деплоя).
+- `migrations/` — SQL миграции (golang-migrate): `000001_init` — журнал, `000002_notify` — беседы,
+  сигналы, уведомления, приглушения (сервис уже в проде — изменения схемы только новыми файлами).
 - `evals/` — эталонные вопросы (`cases.yaml`) и эталонный прогон (`baseline.json`).
 - `Dockerfile`, `Makefile` — сборка (`make build` подставляет версию через ldflags).
 - `.env.example` — пример окружения.
@@ -59,6 +66,9 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `internal/usecase/ask/` — вопрос: формат, «один вопрос за раз на беседу», история беседы (ключ —
   `клиент/conversation_id`: беседы систем не пересекаются; без conversation_id — без истории),
   агент, метрики по клиентам.
+- `internal/usecase/notify/` — лента уведомлений для беседы (курсор беседы: первый вызов подписывает
+  с текущего места, `Ack` — получено), приглушения, заметки беседы (`/v1/notifications`, `/v1/mutes`,
+  `/v1/chat`; `handler/http/notify.go`, без хранилища — 503 `unavailable`).
 - `internal/usecase/monitor/` — мониторинг для `/debug/*`: последние вопросы, вопрос целиком,
   сводка по журналу за окно, сведения об агенте и доступность pulse (каталог инструментов).
 - `internal/domain/journal/` — журнал вопросов (кто, что, исход, время, инструменты, токены,
@@ -67,6 +77,14 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   аргументы — JSON-объектом, `answer`/`trace` сжаты lz4; список читает только лёгкие колонки
   `BriefColumns`), без `PG_DSN` — кольцо последних `JOURNAL_SIZE` в памяти (`repo/mem`); сводка по
   системам и инструментам; пишет usecase `ask` на каждый вопрос, включая отказы.
+- `internal/domain/chat/` — контекст беседы (таблица `chat`, ключ — клиент и conversation_id): заметки
+  (до 2000 символов — идут модели первым сообщением перед историей, общий промпт не меняется) и курсор
+  ленты (`notify_cursor`, null — беседа ещё не читала ленту; не откатывается).
+- `internal/domain/notify/` — сигналы наблюдателя (`signal`: ключ — дедупликация; выкатка — один раз,
+  алерт сервиса — снова, только если прошлый закрыт раньше `WATCH_ALERT_REPEAT`), уведомления
+  (`notification`, общие для бесед) и приглушения (`mute`: пустое поле — любое, `until` null — навсегда;
+  `Covers`/`Active`); лента беседы помечает приглушённые (`MutedBy`), `Muted` — что скрыто. Чистка:
+  уведомления — по сроку журнала, закрытые сигналы — неделя, истёкшие приглушения — сутки.
 - `internal/domain/dialog/` — история беседы: пары «вопрос — итоговый ответ» (без вызовов
   инструментов), последние N, сброс после тишины; `repo/mem` — в памяти процесса.
 - `internal/service/` — сервисные модули (раскладка — скилл `golang-service`):
@@ -99,6 +117,16 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     `RevealArgs` — токены видов с поиском в аргументах вызова pulse (телефон — `+цифры`); `Reveal` —
     итоговый ответ и подписи графиков. В журнал и историю беседы — то, что видела модель
     (`Result.ModelAnswer`, вопрос через `Mask`); клиенты токенов не видят (кроме `trace`).
+  - `watch` — наблюдатель (`WATCH_ENABLED`, нужен `PG_DSN`): раз в `WATCH_INTERVAL` — `get_timeline`
+    scope=cluster (окно 30m) → сигналы `deploy`/`alert_firing` (алерты severity none — нет). Выкатка
+    через `WATCH_DEPLOY_DELAY`: сменилась следующей — `superseded`; снапшот healthy — `healthy` (без
+    модели); иначе разбор. Алерт — разбор сразу. Разбор — `agent.Run` со схемой `verdictSchema`
+    (notify, severity, title, text); notify=false — `quiet`. Сверх `WATCH_MAX_RUNS_PER_HOUR` разборов
+    или после 3 неудачных попыток (повтор через 5 мин) — уведомление без разбора (`raw`). Разборы — в
+    журнале как система `watch` (беседа — ключ сигнала). Метрика `watch_signal_total{kind,outcome}`.
+  - `chattools` — инструменты беседы для модели (только в вопросе с conversation_id и с хранилищем;
+    выполняет агент, не pulse): `chat_notes_save`, `notifications_mute`, `notifications_unmute`,
+    `notifications_mutes`. Аргументы — настоящими значениями (`pii.Reveal`), ответ — модели токенами.
   - `pulse` — MCP-клиент pulse: ленивое подключение, переподключение при потере сессии,
     bearer-токен, каталог инструментов перечитывается на каждый разбор.
   - `retention` — фоновая чистка журнала: раз в час удаляет записи старше
@@ -253,7 +281,8 @@ domain service → repo
   `EVAL_TIMEOUT` (20m). Журнал: `PG_DSN` (секрет; `postgres://…@pulse-pg.default:5432/pulse_agent`,
   пусто — в памяти), `JOURNAL_RETENTION_DAYS` (90), `JOURNAL_SIZE` (500, только в памяти). Персональные данные:
   `PII_TOKEN_KEY` (секрет, ≥32 случайных символа; пусто — токены меняются после рестарта),
-  `PII_PHONE_COUNTRY_CODE` (7).
+  `PII_PHONE_COUNTRY_CODE` (7). Наблюдатель: `WATCH_ENABLED` (true), `WATCH_INTERVAL` (1m),
+  `WATCH_DEPLOY_DELAY` (15m), `WATCH_ALERT_REPEAT` (6h), `WATCH_MAX_RUNS_PER_HOUR` (20).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:
@@ -296,7 +325,8 @@ gofmt  →  go vet ./...  →  go test ./...  →  make eval (после деп�
 ### Тестовый стенд
 - Postgres — контейнер `pulse-pg` из стенда pulse (`localhost:5440`, `postgres/postgres`); база
   журнала `pulse_agent` создаётся агентом сама: `PG_DSN=postgres://postgres:postgres@localhost:5440/pulse_agent?sslmode=disable`.
-  Живой тест репозитория: `PG_LIVE_DSN=<тот же DSN> go test ./internal/domain/journal/repo/db/ -run TestLive -v`.
+  Живой тест репозиториев: `PG_LIVE_DSN=<тот же DSN> go test ./internal/domain/journal/repo/db/ ./internal/domain/notify/repo/db/ -run TestLive -v`
+  (базу `pulse_agent` создать заранее: `docker exec pulse-pg psql -U postgres -c "create database pulse_agent"`).
 - Локально: pulse — по стенду pulse (`localhost:9091/mcp`, `devtoken`), агент —
   `HTTP_PORT=9092 SYSTEM_HTTP_PORT=3014 API_KEYS=dev:devkey`, вопрос:
   ```

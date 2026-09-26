@@ -62,6 +62,17 @@ var Conf = struct {
 	HistoryMaxTurns int           `env:"HISTORY_MAX_TURNS" envDefault:"10"`
 	HistoryTtl      time.Duration `env:"HISTORY_TTL" envDefault:"1h"`
 
+	// наблюдатель (нужен PG_DSN): сам замечает выкатки и алерты в pulse, разбирает их и кладёт
+	// уведомления в ленту (/v1/notifications — беседы клиентов забирают её сами)
+	WatchEnabled  bool          `env:"WATCH_ENABLED" envDefault:"true"`
+	WatchInterval time.Duration `env:"WATCH_INTERVAL" envDefault:"1m"`
+	// выкатку проверяем через столько после неё (и только если снапшот сервиса не healthy)
+	WatchDeployDelay time.Duration `env:"WATCH_DEPLOY_DELAY" envDefault:"15m"`
+	// один и тот же алерт сервиса — не чаще
+	WatchAlertRepeat time.Duration `env:"WATCH_ALERT_REPEAT" envDefault:"6h"`
+	// разборов агентом в час; сверх — уведомление без разбора (сигнал как есть)
+	WatchMaxRunsPerHour int `env:"WATCH_MAX_RUNS_PER_HOUR" envDefault:"20"`
+
 	// графики к ответам: dark | light (тему пользователя клиенты не сообщают — одна на сервис)
 	ChartTheme string `env:"CHART_THEME" envDefault:"dark"`
 }{}

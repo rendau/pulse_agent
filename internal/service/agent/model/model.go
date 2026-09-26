@@ -38,6 +38,17 @@ type Req struct {
 	// ResponseSchema — JSON Schema ответа от системы-клиента (RPC): ответ — JSON строго по ней
 	// (Result.Json); nil — формат Format
 	ResponseSchema map[string]any
+	// Chat — беседа клиента: её заметки идут модели, модель может менять их и приглушения
+	// уведомлений (инструменты беседы); nil — вопрос без беседы
+	Chat *Chat
+}
+
+// Chat — беседа, в которой задан вопрос: кто спросил и что беседа попросила запомнить.
+type Chat struct {
+	Client         string
+	ConversationId string
+	User           string // кто спросил (имя или id) — автор заметок и приглушений
+	Notes          string
 }
 
 // Result — итог разбора.

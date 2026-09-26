@@ -46,6 +46,7 @@ func init() {
 }
 
 type Usecase struct {
+	chat    ChatServiceI // nil — без контекста бесед
 	dialog  DialogServiceI
 	journal JournalServiceI
 	agent   AgentI
@@ -55,8 +56,8 @@ type Usecase struct {
 	busy map[string]struct{} // беседы, где идёт разбор
 }
 
-func New(dialog DialogServiceI, journal JournalServiceI, agent AgentI, pii PiiI) *Usecase {
-	return &Usecase{dialog: dialog, journal: journal, agent: agent, pii: pii, busy: map[string]struct{}{}}
+func New(chat ChatServiceI, dialog DialogServiceI, journal JournalServiceI, agent AgentI, pii PiiI) *Usecase {
+	return &Usecase{chat: chat, dialog: dialog, journal: journal, agent: agent, pii: pii, busy: map[string]struct{}{}}
 }
 
 // Ask разбирает вопрос и пишет его в журнал (мониторинг). Ошибки: errs.InvalidRequest —
@@ -119,7 +120,20 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 		}
 	}
 
+	var chat *agentModel.Chat
+	if conversation != "" && u.chat != nil {
+		c, err := u.chat.Get(ctx, q.Client, strings.TrimSpace(q.ConversationId))
+		if err != nil {
+			return nil, fmt.Errorf("chat.Get: %w", err)
+		}
+		chat = &agentModel.Chat{
+			Client: q.Client, ConversationId: c.ConversationId, Notes: c.Notes,
+			User: lo.CoalesceOrEmpty(strings.TrimSpace(q.User.Name), q.User.Id),
+		}
+	}
+
 	result, err := u.agent.Run(ctx, &agentModel.Req{
+		Chat: chat,
 		History: lo.Map(history, func(t *dialogModel.Turn, _ int) agentModel.Turn {
 			return agentModel.Turn{Question: t.Question, Answer: t.Answer}
 		}),
