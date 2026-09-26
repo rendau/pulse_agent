@@ -1,0 +1,144 @@
+package pulsekit
+
+// Образцы подключения стандарта pulse (docs/service-manifest.md): что писать в сервисе (там —
+// с префиксом pulsekit.). Это тесты — они компилируются и выполняются вместе с остальными,
+// поэтому образец не устаревает.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+)
+
+// OrderStatus — статус заказа в коде сервиса: перечень для схемы берётся отсюда (PulseEnum), а не
+// переписывается в тег.
+type OrderStatus string
+
+const (
+	OrderNew     OrderStatus = "new"
+	OrderPaid    OrderStatus = "paid"
+	OrderShipped OrderStatus = "shipped"
+)
+
+func (OrderStatus) PulseEnum() []string {
+	return []string{string(OrderNew), string(OrderPaid), string(OrderShipped)}
+}
+
+// exampleOrderRep — ответ ручки: только то, что можно показать на общем дашборде.
+type exampleOrderRep struct {
+	Number    string      `json:"number"`
+	Status    OrderStatus `json:"status"`
+	Phone     string      `json:"customer_phone" pulse:"personal=phone"` // модель увидит токен, человек — номер
+	Reason    string      `json:"stuck_reason" pulse:"maxLength=300,description=почему застрял, своими словами"`
+	ShippedAt *time.Time  `json:"shipped_at"` // nil — null: ещё не отгружен
+}
+
+// exampleOrders — хранилище заказов сервиса (в тесте — фейк).
+type exampleOrders interface {
+	Get(ctx context.Context, number string) (*exampleOrderRep, error)
+}
+
+var errOrderNotFound = errors.New("not found")
+
+type fakeExampleOrders struct{}
+
+func (fakeExampleOrders) Get(_ context.Context, number string) (*exampleOrderRep, error) {
+	if number == "00000" {
+		return nil, errOrderNotFound
+	}
+	return &exampleOrderRep{Number: number, Status: OrderPaid, Phone: "+77011234567", Reason: "ждём склад"}, nil
+}
+
+// handleExampleOrderStatus — диагностическая ручка: так она объявляется в сервисе (обычно рядом с
+// newPulsekit в internal/app/manifest.go).
+func handleExampleOrderStatus(kit *Kit, orders exampleOrders) {
+	Handle(kit, Endpoint{
+		Id:          "order_status",
+		Title:       "Где заказ",
+		Description: "Вызывай, когда спрашивают о конкретном заказе по номеру: статус, почему застрял. Не для поиска заказов клиента.",
+		Path:        "/diag/order/{number}",
+		Params:      map[string]Param{"number": {Pattern: "[0-9]{5,12}", Description: "номер заказа"}},
+		Timeout:     3 * time.Second,
+	}, func(ctx context.Context, params map[string]string) (exampleOrderRep, error) {
+		order, err := orders.Get(ctx, params["number"])
+		switch {
+		case errors.Is(err, errOrderNotFound):
+			return exampleOrderRep{}, Error{Status: http.StatusNotFound, Message: "заказ не найден"}
+		case err != nil:
+			return exampleOrderRep{}, err // наружу — «внутренняя ошибка», текст — только в лог сервиса
+		}
+		return *order, nil
+	})
+}
+
+// Ручка и её проверка в тесте сервиса: CheckEndpoint вызывает ручку, как pulse, и сверяет ответ
+// со схемой (лишние поля, типы, длины, enum, время; у ошибки — только {"error"}).
+func ExampleKit_CheckEndpoint() {
+	kit := New(Config{}, Service{
+		Name: "orders", Title: "Заказы", Description: "Принимает заказы", OwnerTeam: "orders", Criticality: "high",
+	}, Build{})
+	handleExampleOrderStatus(kit, fakeExampleOrders{})
+
+	fmt.Println(kit.CheckEndpoint("order_status", map[string]string{"number": "234115"}))
+	fmt.Println(kit.CheckEndpoint("order_status", map[string]string{"number": "00000"}))
+	// Output:
+	// <nil>
+	// <nil>
+}
+
+// Зависимости: одной строкой рядом с созданием клиента; адрес — через Host, последствие — Affects.
+// Платный API без health-ручки — пассивная проверка по настоящим вызовам.
+func ExampleNewPassive() {
+	kit := New(Config{}, Service{
+		Name: "orders", Title: "Заказы", Description: "Принимает заказы", OwnerTeam: "orders", Criticality: "high",
+	}, Build{})
+
+	pingDb := func(context.Context) error { return nil }
+	kit.Depend("pg", "postgres", Host("postgres://app:secret@orders-pg:5432/orders"), true, pingDb).
+		Affects("весь сервис")
+
+	bank := NewPassive(5 * time.Minute)
+	kit.Depend("bank", "http", Host("https://api.bank.kz/v1"), false, bank.Check).
+		Affects("онлайн-оплата")
+
+	// в клиенте банка после каждого вызова: сбой связи или 5xx — ошибка, любой ответ банка
+	// (даже отказ в оплате) — nil
+	bank.Observe(nil)
+
+	for _, d := range kit.Manifest().Dependencies {
+		fmt.Println(d.Id, d.Target, d.Affects)
+	}
+	// Output:
+	// pg orders-pg весь сервис
+	// bank api.bank.kz онлайн-оплата
+}
+
+// Показатели состояния: то, чего нет в метриках, но что объясняет состояние.
+func ExampleKit_Gauge() {
+	kit := New(Config{}, Service{
+		Name: "orders", Title: "Заказы", Description: "Принимает заказы", OwnerTeam: "orders", Criticality: "high",
+	}, Build{})
+
+	outboxCount := func(context.Context) (int, error) { return 1840, nil }
+	kit.Gauge("outbox_backlog", "Неотправленные события", "count", func(ctx context.Context) (float64, string, error) {
+		n, err := outboxCount(ctx)
+		status := "ok"
+		if n > 1000 { // порог — решение владельца сервиса
+			status = "degraded"
+		}
+		return float64(n), status, err
+	})
+}
+
+// Своё сообщение вместо текста чужой ошибки — для ручки состояния и сохранённых причин.
+func ExampleDescribeText() {
+	fmt.Println(DescribeText("warehouse not found in MDM"))
+	fmt.Println(DescribeText("receipt: invalid sum"))
+	fmt.Println(Describe(errors.New("dial tcp 10.0.0.7:5432: connect: connection refused")))
+	// Output:
+	// не найдено
+	// отклонено
+	// в соединении отказано
+}
