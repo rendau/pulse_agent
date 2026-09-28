@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -71,10 +72,19 @@ func (f *fakePulse) Call(_ context.Context, name, arguments string) (*pulseModel
 	case "bad_args":
 		return &pulseModel.CallResult{Text: "unknown service", IsError: true}, nil
 	case "call_service_endpoint":
+		switch {
+		case strings.Contains(arguments, "not_json"):
+			return &pulseModel.CallResult{Text: `{"audience":"human","data":{"secret":"ТОЛЬКО-ЧЕЛОВЕКУ"}}` + "\n" + `{"x":1}`}, nil
+		case strings.Contains(arguments, "future_audience"):
+			return &pulseModel.CallResult{Text: `{"audience":"admins","data":{"secret":"ТОЛЬКО-ЧЕЛОВЕКУ"}}`}, nil
+		case strings.Contains(arguments, "raw_error"):
+			return &pulseModel.CallResult{Text: `{"service":"orders","endpoint_id":"raw_error","audience":"human","status_code":404,` +
+				`"data":{"error":"заказ ТОЛЬКО-ЧЕЛОВЕКУ не найден"}}`}, nil
+		}
 		if strings.Contains(arguments, "order_raw") {
 			return &pulseModel.CallResult{Text: `{"service":"orders","endpoint_id":"order_raw","title":"Заказ как есть","audience":"human",` +
 				`"status_code":200,"request_id":"pulse-1","masked_fields":1,` +
-				`"data":{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров","api_token":"***"}}`}, nil
+				`"data":{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров","api_token":"***","note":"ТОЛЬКО-ЧЕЛОВЕКУ"}}`}, nil
 		}
 		return &pulseModel.CallResult{Text: `{"data":{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров"},` +
 			`"personal_fields":{"customer_phone":"phone","customer_name":"name"}}`}, nil
@@ -502,7 +512,7 @@ func TestRun_HumanReply(t *testing.T) {
 	assert.Equal(t, 200, reply.StatusCode)
 	assert.Equal(t, 1, reply.MaskedFields)
 	assert.Equal(t, map[string]any{"phone": "+77011234567"}, reply.Params, "параметры — настоящими значениями")
-	assert.JSONEq(t, `{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров","api_token":"***"}`, string(reply.Data))
+	assert.JSONEq(t, `{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров","api_token":"***","note":"ТОЛЬКО-ЧЕЛОВЕКУ"}`, string(reply.Data))
 }
 
 // Сверх лимита ответы ручек для человека не отправляются: модели — ошибка вызова.
@@ -518,4 +528,51 @@ func TestRun_HumanReplyLimit(t *testing.T) {
 	assert.Len(t, res.HumanReplies, localConstant.MaxHumanReplies)
 	last := llm.requests[1].ToolResults[localConstant.MaxHumanReplies].Output
 	assert.Contains(t, last, "не отправлен")
+}
+
+// Смешанные вызовы: в одном шаге и на разных шагах — обычные ручки и ручки для человека. Модели
+// (во всех запросах разбора: сообщения, ответы инструментов), в ход разбора и в ответ модели не
+// попадает ничего из ответов для человека; неразобранный ответ ручки и неизвестный audience —
+// не передаются никому (fail-closed); ответ для человека с ошибкой — тоже человеку.
+func TestRun_HumanRepliesNeverReachModel(t *testing.T) {
+	endpoint := func(id, endpointId string) llmModel.ToolCall {
+		return llmModel.ToolCall{Id: id, Name: "call_service_endpoint", Arguments: `{"service":"orders","endpoint_id":"` + endpointId + `"}`}
+	}
+	llm := &fakeLlm{steps: []*llmModel.Response{
+		toolStep("s1",
+			endpoint("c1", "order"), endpoint("c2", "order_raw"),
+			llmModel.ToolCall{Id: "c3", Name: "resolve_service", Arguments: `{"query":"orders"}`},
+			endpoint("c4", "not_json"), endpoint("c5", "future_audience"),
+		),
+		toolStep("s2", endpoint("c6", "raw_error"), endpoint("c7", "order")),
+		textStep("Заказ 234115 в работе; ответы ручек отправил."),
+	}}
+
+	res, err := newService(llm, &fakePulse{}, 20).Run(context.Background(), &agentModel.Req{Question: "что с заказом 234115, покажи и как есть"})
+	require.NoError(t, err)
+
+	require.Len(t, llm.requests, 3)
+	for i, req := range llm.requests {
+		raw, err := json.Marshal(req)
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "ТОЛЬКО-ЧЕЛОВЕКУ", "запрос модели %d", i)
+	}
+	for _, trace := range res.Trace {
+		assert.NotContains(t, trace.Output, "ТОЛЬКО-ЧЕЛОВЕКУ", trace.Arguments)
+	}
+
+	results := llm.requests[1].ToolResults
+	assert.Contains(t, results[0].Output, `"number":"234115"`, "обычная ручка — модели")
+	assert.Contains(t, results[1].Output, `"sent_to_human":true`)
+	assert.Contains(t, results[2].Output, `"ok":true`, "другие инструменты — как обычно")
+	assert.Contains(t, results[3].Output, localConstant.EndpointBlocked, "не разобран — не передан")
+	assert.Contains(t, results[4].Output, localConstant.EndpointBlocked, "неизвестный audience — не передан")
+	later := llm.requests[2].ToolResults
+	assert.Contains(t, later[0].Output, `"status_code":404`)
+	assert.Contains(t, later[1].Output, `"number":"234115"`)
+
+	require.Len(t, res.HumanReplies, 2, "человеку — только ответы для человека, заблокированные — никому")
+	assert.Equal(t, "order_raw", res.HumanReplies[0].EndpointId)
+	assert.Equal(t, "raw_error", res.HumanReplies[1].EndpointId)
+	assert.Contains(t, string(res.HumanReplies[1].Data), "не найден")
 }

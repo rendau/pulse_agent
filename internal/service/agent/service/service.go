@@ -290,8 +290,9 @@ func (s *Service) callTool(ctx context.Context, step int, call llmModel.ToolCall
 	metricToolCallDuration.WithLabelValues(call.Name).Observe(trace.Duration.Seconds())
 
 	var human *agentModel.HumanReply
-	if err == nil && !res.IsError && call.Name == localConstant.EndpointTool {
-		human = humanReply(res.Text, args)
+	var blocked bool
+	if err == nil && !res.IsError {
+		human, blocked = screenResult(call.Name, res.Text, args)
 	}
 
 	switch {
@@ -301,6 +302,9 @@ func (s *Service) callTool(ctx context.Context, step int, call llmModel.ToolCall
 	case res.IsError:
 		trace.Status, trace.Output = agentModel.ToolStatusToolError, localConstant.ToolErrorPrefix+s.pii.Mask(res.Text)
 		slog.Debug("pulse tool error", "tool", call.Name, "arguments", call.Arguments, "text", trace.Output)
+	case blocked:
+		trace.Status, trace.Output = agentModel.ToolStatusToolError, localConstant.ToolErrorPrefix+localConstant.EndpointBlocked
+		slog.Warn("pulse tool output blocked: cannot tell it is not for humans only", "tool", call.Name, "bytes", strconv.Itoa(len(res.Text)))
 	case human != nil:
 		// ответ ручки для человека: клиенту — как есть, модели (и журналу, и истории) — только отметка
 		trace.Human = human

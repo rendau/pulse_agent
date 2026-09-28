@@ -118,7 +118,13 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
       `call_service_endpoint` с `audience: human` (pulse отдаёт его только по внутреннему токену)
       модели не показывается — она видит лишь `HumanReplySent` («отправлено человеку»); данные как
       есть (без токенов) — в `Result.HumanReplies` → `human_replies` API, до 5 на ответ. В журнал
-      и историю — только отметка (Trace.Output), тело ответа не хранится нигде.
+      и историю — только отметка (Trace.Output), тело ответа не хранится нигде. Гарантия —
+      `screenResult`, единственная дверь ответа pulse к модели (каждый вызов отдельно, смешанные
+      вызовы в шаге разводятся): проверяется ответ любого инструмента; `audience: human` на верхнем
+      уровне — человеку; неизвестный audience или неразобранный ответ `call_service_endpoint` —
+      не передаётся никому (fail-closed). Тест `TestRun_HumanRepliesNeverReachModel` сверяет все
+      запросы к модели. Ошибки инструментов pulse (IsError) идут модели: pulse не кладёт в них тело
+      ответа ручки.
   - `llm` — провайдер-независимый контракт: фасад `Provider` (`interface.go`: шаг, `Ping` для ручки
     состояния), модели шага
     (`model/`, `Request.Output` — JSON Schema итогового ответа). Адаптеры —
