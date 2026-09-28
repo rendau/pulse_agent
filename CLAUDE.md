@@ -114,6 +114,11 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
       ссылкой `metrics` (service + metric_id) на ответ `query_metrics` этого разбора: точки не
       переписываются моделью; `series` — свои точки для небольших данных. До 3 графиков на ответ;
       `Chart.Spec` — данные графика (клиент может нарисовать сам).
+    - Ручки для человека (`audience: human` в манифесте сервиса, `service/human.go`): ответ
+      `call_service_endpoint` с `audience: human` (pulse отдаёт его только по внутреннему токену)
+      модели не показывается — она видит лишь `HumanReplySent` («отправлено человеку»); данные как
+      есть (без токенов) — в `Result.HumanReplies` → `human_replies` API, до 5 на ответ. В журнал
+      и историю — только отметка (Trace.Output), тело ответа не хранится нигде.
   - `llm` — провайдер-независимый контракт: фасад `Provider` (`interface.go`: шаг, `Ping` для ручки
     состояния), модели шага
     (`model/`, `Request.Output` — JSON Schema итогового ответа). Адаптеры —

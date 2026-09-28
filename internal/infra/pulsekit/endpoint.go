@@ -43,6 +43,10 @@ type Endpoint struct {
 	// строк показать агенту (по умолчанию 50, не больше 100)
 	RowsPath string
 	MaxRows  int
+	// Human — ответ только для человека (audience: human): pulse отдаёт его как есть только
+	// агенту, тот пересылает человеку, модель его не видит. Схема ответа не публикуется — T любой
+	// (структура, map[string]any, json.RawMessage); RowsPath не применяется.
+	Human bool
 }
 
 // Error — ошибка ручки для человека: {"error": Message} с HTTP-статусом (по умолчанию 500).
@@ -68,7 +72,8 @@ func RequestId(ctx context.Context) string {
 
 var paramPathRe = regexp.MustCompile(`\{([a-zA-Z][a-zA-Z0-9_]*)\}`)
 
-// Handle объявляет ручку: схема ответа — из типа T (json-теги, `pulse:"personal=phone"`).
+// Handle объявляет ручку: схема ответа — из типа T (json-теги, `pulse:"personal=phone"`); у ручки
+// для человека (Endpoint.Human) схемы нет.
 // fn получает проверенные параметры и контекст с RequestId; ошибка типа Error — её статус и
 // текст, иначе 500 и «внутренняя ошибка» (текст ошибки наружу не уходит: в нём бывают строки
 // подключения; в лог сервиса — уходит). Каждый вызов пишется в лог: ручка, X-Pulse-Request-Id,
@@ -77,8 +82,13 @@ var paramPathRe = regexp.MustCompile(`\{([a-zA-Z][a-zA-Z0-9_]*)\}`)
 func Handle[T any](k *Kit, e Endpoint, fn func(ctx context.Context, params map[string]string) (T, error)) {
 	defer k.catch()
 	k.validateEndpoint(e)
-	var zero T
-	response := schemaOf(zeroType(zero), e.Id, k.warn)
+	var response *schema
+	if e.Human {
+		e.RowsPath = ""
+	} else {
+		var zero T
+		response = schemaOf(zeroType(zero), e.Id, k.warn)
+	}
 
 	k.mu.Lock()
 	defer k.mu.Unlock()

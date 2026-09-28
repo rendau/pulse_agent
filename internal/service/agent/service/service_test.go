@@ -71,6 +71,11 @@ func (f *fakePulse) Call(_ context.Context, name, arguments string) (*pulseModel
 	case "bad_args":
 		return &pulseModel.CallResult{Text: "unknown service", IsError: true}, nil
 	case "call_service_endpoint":
+		if strings.Contains(arguments, "order_raw") {
+			return &pulseModel.CallResult{Text: `{"service":"orders","endpoint_id":"order_raw","title":"Заказ как есть","audience":"human",` +
+				`"status_code":200,"request_id":"pulse-1","masked_fields":1,` +
+				`"data":{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров","api_token":"***"}}`}, nil
+		}
 		return &pulseModel.CallResult{Text: `{"data":{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров"},` +
 			`"personal_fields":{"customer_phone":"phone","customer_name":"name"}}`}, nil
 	}
@@ -467,4 +472,50 @@ func TestChatTools(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, lo.ContainsBy(llm.requests[0].Tools, func(d llmModel.ToolDef) bool { return d.Name == "notifications_mute" }))
 	assert.Len(t, llm.requests[0].Messages, 1)
+}
+
+// Ручка для человека: ответ — клиенту как есть, модель видит только «отправлено»; параметры —
+// настоящими значениями.
+func TestRun_HumanReply(t *testing.T) {
+	phone := testPii.Mask("+77011234567")
+	llm := &fakeLlm{steps: []*llmModel.Response{
+		toolStep("s1", llmModel.ToolCall{Id: "c1", Name: "call_service_endpoint",
+			Arguments: `{"service":"orders","endpoint_id":"order_raw","params":{"phone":"` + phone + `"}}`}),
+		textStep("Отправил ответ ручки order_raw сервиса orders."),
+	}}
+	pulse := &fakePulse{}
+
+	res, err := newService(llm, pulse, 20).Run(context.Background(), &agentModel.Req{Question: "покажи заказ клиента 8 701 123 45 67 как есть"})
+	require.NoError(t, err)
+
+	output := llm.requests[1].ToolResults[0].Output
+	assert.Contains(t, output, `"sent_to_human":true`)
+	for _, leaked := range []string{"234115", "Иван", "701", "pii:"} {
+		assert.NotContains(t, output, leaked, "ответ ручки модели не показывается")
+	}
+	assert.Equal(t, output, res.Trace[0].Output, "в журнал — только отметка")
+
+	require.Len(t, res.HumanReplies, 1)
+	reply := res.HumanReplies[0]
+	assert.Equal(t, "orders", reply.Service)
+	assert.Equal(t, "order_raw", reply.EndpointId)
+	assert.Equal(t, 200, reply.StatusCode)
+	assert.Equal(t, 1, reply.MaskedFields)
+	assert.Equal(t, map[string]any{"phone": "+77011234567"}, reply.Params, "параметры — настоящими значениями")
+	assert.JSONEq(t, `{"number":"234115","customer_phone":"8 701 123 45 67","customer_name":"Иван Петров","api_token":"***"}`, string(reply.Data))
+}
+
+// Сверх лимита ответы ручек для человека не отправляются: модели — ошибка вызова.
+func TestRun_HumanReplyLimit(t *testing.T) {
+	calls := make([]llmModel.ToolCall, localConstant.MaxHumanReplies+1)
+	for i := range calls {
+		calls[i] = llmModel.ToolCall{Id: fmt.Sprintf("c%d", i), Name: "call_service_endpoint", Arguments: `{"service":"orders","endpoint_id":"order_raw"}`}
+	}
+	llm := &fakeLlm{steps: []*llmModel.Response{toolStep("s1", calls...), textStep("готово")}}
+
+	res, err := newService(llm, &fakePulse{}, 20).Run(context.Background(), &agentModel.Req{Question: "q"})
+	require.NoError(t, err)
+	assert.Len(t, res.HumanReplies, localConstant.MaxHumanReplies)
+	last := llm.requests[1].ToolResults[localConstant.MaxHumanReplies].Output
+	assert.Contains(t, last, "не отправлен")
 }

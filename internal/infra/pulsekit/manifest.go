@@ -120,14 +120,18 @@ type errorPatternRep struct {
 	Pattern string `json:"pattern"`
 }
 
+// audienceHuman — ответ ручки только для человека, не для ИИ.
+const audienceHuman = "human"
+
 type endpointRep struct {
 	Id          string              `json:"id"`
 	Title       string              `json:"title"`
 	Description string              `json:"description"`
 	Path        string              `json:"path"`
+	Audience    string              `json:"audience,omitempty"`
 	Params      map[string]paramRep `json:"params,omitempty"`
 	TimeoutMs   int64               `json:"timeout_ms,omitempty"`
-	Response    *schema             `json:"response"`
+	Response    *schema             `json:"response,omitempty"`
 	RowsPath    string              `json:"rows_path,omitempty"`
 	MaxRows     int                 `json:"max_rows,omitempty"`
 }
@@ -181,8 +185,12 @@ func (k *Kit) Manifest() ManifestRep {
 			params[name] = paramRep{Type: cmpOr(p.Type, "string"), Pattern: p.Pattern, Enum: p.Enum, Min: p.Min, Max: p.Max,
 				Default: def, Required: p.Required, Description: p.Description, Personal: p.Personal}
 		}
+		audience := ""
+		if e.Human {
+			audience = audienceHuman
+		}
 		rep.Endpoints = append(rep.Endpoints, endpointRep{Id: e.Id, Title: e.Title, Description: e.Description, Path: e.Path,
-			Params: params, TimeoutMs: e.Timeout.Milliseconds(), Response: e.response, RowsPath: e.RowsPath, MaxRows: e.MaxRows})
+			Audience: audience, Params: params, TimeoutMs: e.Timeout.Milliseconds(), Response: e.response, RowsPath: e.RowsPath, MaxRows: e.MaxRows})
 	}
 	return rep
 }

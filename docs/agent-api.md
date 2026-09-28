@@ -146,6 +146,22 @@ GitHub, kusec, ruto) через LLM с инструментами. Ответ с
   сервисов; до 3). `png` — PNG в base64 (тёмная тема), `data` — ряды, по которым нарисовано:
   у `line` `x` — время RFC3339, у `bar` — подпись категории; `y` — в единицах `unit` как
   пришло из источника (`bytes`, `ratio`, `seconds`, `cores`, `rps`, `count`).
+- `human_replies[]` — ответы ручек сервисов **только для человека** (`audience: "human"` в
+  манифесте сервиса — «покажи заказ 123 как есть»). Модель их не видела и не пересказывает:
+  покажите `data` человеку как есть (Telegram-бот — блоком JSON или файлом). Поля: `service`,
+  `endpoint_id`, `title`, `params` (параметры вызова), `status_code`, `request_id`, `data` (ответ
+  сервиса; ошибка ручки — `{"error": "…"}`), `rows`/`total_rows`/`truncated`, `masked_fields`
+  (сколько значений полей с именем секрета pulse заменил маской). Персональные данные в `data` —
+  настоящие. В журнал агента и историю беседы ответ не пишется — только факт вызова. Нет таких
+  ответов — поля нет.
+
+```json
+"human_replies": [{
+  "service": "seller", "endpoint_id": "order_raw", "title": "Заказ как есть",
+  "params": {"number": "123"}, "status_code": 200, "request_id": "pulse-3f9a…",
+  "data": {"number": "123", "status": "paid", "customer_phone": "+77011234567", "items": […]}
+}]
+```
 
 ## POST /v1/reset
 

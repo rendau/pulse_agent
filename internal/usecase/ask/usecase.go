@@ -159,6 +159,7 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 		"cached_tokens", result.Usage.CachedTokens,
 		"output_tokens", result.Usage.OutputTokens,
 		"charts", len(result.Charts),
+		"human_replies", len(result.HumanReplies),
 	)
 
 	// пустой ответ в историю не кладём: он только собьёт следующий вопрос. В истории — то, что
@@ -170,16 +171,17 @@ func (u *Usecase) ask(ctx context.Context, conversation string, q *model.Questio
 	}
 
 	return &model.Answer{
-		Text:        result.Answer,
-		ModelAnswer: result.ModelAnswer,
-		Structured:  result.Structured,
-		Json:        result.Json,
-		Incomplete:  result.Incomplete,
-		Charts:      result.Charts,
-		Steps:       result.Steps,
-		ToolCalls:   result.ToolCalls,
-		Usage:       result.Usage,
-		Trace:       result.Trace,
+		Text:         result.Answer,
+		ModelAnswer:  result.ModelAnswer,
+		Structured:   result.Structured,
+		Json:         result.Json,
+		Incomplete:   result.Incomplete,
+		Charts:       result.Charts,
+		HumanReplies: result.HumanReplies,
+		Steps:        result.Steps,
+		ToolCalls:    result.ToolCalls,
+		Usage:        result.Usage,
+		Trace:        result.Trace,
 	}, nil
 }
 

@@ -70,6 +70,9 @@ func (k *Kit) CheckEndpoint(id string, params map[string]string) error {
 		return nil
 	}
 
+	if decl.Human {
+		return nil // ответ для человека — как есть, схемы нет
+	}
 	var problems []error
 	checkValue(body, decl.response, "response", &problems)
 	return errors.Join(problems...)

@@ -143,6 +143,7 @@ func (s *Service) Run(ctx context.Context, req *agentModel.Req) (*agentModel.Res
 		traces := s.callTools(toolCtx, chat, skills, result.Steps, resp.ToolCalls, result.Trace)
 		toolCancel()
 		result.Charts = collectCharts(result.Charts, traces)
+		result.HumanReplies = collectHumanReplies(result.HumanReplies, traces)
 		llmReq.ToolResults = toolResults(resp.ToolCalls, traces)
 		result.Trace = append(result.Trace, traces...)
 		result.ToolCalls += len(resp.ToolCalls)
@@ -283,9 +284,15 @@ func collectCharts(charts []agentModel.Chart, traces []agentModel.ToolTrace) []a
 func (s *Service) callTool(ctx context.Context, step int, call llmModel.ToolCall) agentModel.ToolTrace {
 	started := s.now()
 
-	res, err := s.pulse.Call(ctx, call.Name, s.pii.RevealArgs(call.Arguments))
+	args := s.pii.RevealArgs(call.Arguments)
+	res, err := s.pulse.Call(ctx, call.Name, args)
 	trace := agentModel.ToolTrace{Step: step, Name: call.Name, Arguments: call.Arguments, Duration: s.now().Sub(started)}
 	metricToolCallDuration.WithLabelValues(call.Name).Observe(trace.Duration.Seconds())
+
+	var human *agentModel.HumanReply
+	if err == nil && !res.IsError && call.Name == localConstant.EndpointTool {
+		human = humanReply(res.Text, args)
+	}
 
 	switch {
 	case err != nil:
@@ -294,6 +301,11 @@ func (s *Service) callTool(ctx context.Context, step int, call llmModel.ToolCall
 	case res.IsError:
 		trace.Status, trace.Output = agentModel.ToolStatusToolError, localConstant.ToolErrorPrefix+s.pii.Mask(res.Text)
 		slog.Debug("pulse tool error", "tool", call.Name, "arguments", call.Arguments, "text", trace.Output)
+	case human != nil:
+		// ответ ручки для человека: клиенту — как есть, модели (и журналу, и истории) — только отметка
+		trace.Human = human
+		trace.Status, trace.Output = agentModel.ToolStatusOk, humanSent(human)
+		slog.Debug("pulse human reply", "tool", call.Name, "arguments", call.Arguments, "bytes", strconv.Itoa(len(res.Text)))
 	default:
 		trace.Status, trace.Output = agentModel.ToolStatusOk, s.pii.MaskToolOutput(res.Text)
 		slog.Debug("pulse tool call", "tool", call.Name, "arguments", call.Arguments, "bytes", strconv.Itoa(len(res.Text)))

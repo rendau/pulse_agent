@@ -438,3 +438,29 @@ func TestActivity(t *testing.T) {
 	assert.Equal(t, 120, *e.Created1h)
 	assert.Nil(t, e.Finished1h)
 }
+
+// Ручка для человека: audience human, схема ответа не публикуется, ответ — как есть.
+func TestHumanEndpoint(t *testing.T) {
+	k := newKit()
+	Handle(k, Endpoint{
+		Id: "order_raw", Title: "Заказ как есть", Description: "когда просят показать заказ целиком, как есть",
+		Path: "/diag/order/{number}/raw", Params: map[string]Param{"number": {Pattern: "[0-9]{5,12}"}},
+		RowsPath: "history", Human: true,
+	}, func(_ context.Context, params map[string]string) (map[string]any, error) {
+		return map[string]any{"number": params["number"], "raw": map[string]string{"source": "1c"}}, nil
+	})
+	assert.Empty(t, k.Problems())
+
+	endpoint := k.Manifest().Endpoints[1]
+	assert.Equal(t, "human", endpoint.Audience)
+	assert.Nil(t, endpoint.Response)
+	assert.Empty(t, endpoint.RowsPath, "rows_path — только со схемой")
+	require.NoError(t, k.CheckEndpoint("order_raw", map[string]string{"number": "234115"}))
+
+	mux := http.NewServeMux()
+	k.Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/diag/order/234115/raw", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"number":"234115","raw":{"source":"1c"}}`, rec.Body.String())
+}

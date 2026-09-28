@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	chartModel "github.com/rendau/pulse_agent/internal/service/chart/model"
@@ -80,6 +81,29 @@ type Result struct {
 
 	// Charts — графики к ответу (render_chart), по порядку построения.
 	Charts []Chart
+
+	// HumanReplies — ответы ручек для человека (audience: human) по порядку вызова: уходят
+	// клиенту как есть, модели не показываются.
+	HumanReplies []HumanReply
+}
+
+// HumanReply — ответ ручки сервиса только для человека: данные как есть (персональные — настоящие),
+// модель видит лишь, что ответ отправлен. В журнал и историю беседы не попадает.
+type HumanReply struct {
+	Service    string
+	EndpointId string
+	Title      string
+	// Params — параметры вызова настоящими значениями
+	Params     map[string]any
+	StatusCode int
+	RequestId  string
+	// Data — ответ ручки как есть; ошибка ручки — {"error": …}
+	Data      json.RawMessage
+	Rows      int
+	TotalRows int
+	Truncated bool
+	// MaskedFields — сколько значений полей с именем секрета pulse заменил маской
+	MaskedFields int
 }
 
 // Chart — график к ответу: картинка и данные, по которым она нарисована (клиент может
@@ -123,6 +147,8 @@ type ToolTrace struct {
 	Output    string // что ушло модели (токенами)
 	Duration  time.Duration
 	Chart     *Chart // построенный график (render_chart)
+	// Human — ответ ручки для человека: Output — только отметка «отправлен человеку»
+	Human *HumanReply
 }
 
 // Skill — навык: руководство по теме, которое модель открывает сама (open_skill). В системном

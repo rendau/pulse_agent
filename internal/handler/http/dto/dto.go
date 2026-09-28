@@ -63,13 +63,16 @@ type AskRep struct {
 	// умолчанию (ResultRep); null — текстовый формат или модель не выдала JSON
 	Result json.RawMessage `json:"result"`
 	// Incomplete — почему разбор закончен досрочно: timeout | tool_calls | output; пусто — полный
-	Incomplete string          `json:"incomplete,omitempty"`
-	Charts     []ChartRep      `json:"charts"`
-	DurationMs int64           `json:"duration_ms"`
-	Steps      int             `json:"steps"`
-	ToolCalls  int             `json:"tool_calls"`
-	Usage      UsageRep        `json:"usage"`
-	Trace      []*ToolTraceRep `json:"trace,omitempty"`
+	Incomplete string     `json:"incomplete,omitempty"`
+	Charts     []ChartRep `json:"charts"`
+	// HumanReplies — ответы ручек сервисов только для человека (audience: human): показать
+	// человеку как есть; модель их не видела
+	HumanReplies []HumanReplyRep `json:"human_replies,omitempty"`
+	DurationMs   int64           `json:"duration_ms"`
+	Steps        int             `json:"steps"`
+	ToolCalls    int             `json:"tool_calls"`
+	Usage        UsageRep        `json:"usage"`
+	Trace        []*ToolTraceRep `json:"trace,omitempty"`
 }
 
 // ResultRep — ответ по полям схемы по умолчанию (format=json без response_schema).
@@ -93,6 +96,29 @@ type FactRep struct {
 	Text    string     `json:"text"`
 	Time    *time.Time `json:"time"`
 	Service *string    `json:"service"`
+}
+
+// HumanReplyRep — ответ ручки для человека: data — как ответил сервис (персональные данные —
+// настоящие; значения полей с именем секрета, карты — маской), ошибка ручки — {"error": …}.
+type HumanReplyRep struct {
+	Service      string          `json:"service"`
+	EndpointId   string          `json:"endpoint_id"`
+	Title        string          `json:"title,omitempty"`
+	Params       map[string]any  `json:"params,omitempty"`
+	StatusCode   int             `json:"status_code"`
+	RequestId    string          `json:"request_id,omitempty"`
+	Data         json.RawMessage `json:"data"`
+	Rows         int             `json:"rows,omitempty"`
+	TotalRows    int             `json:"total_rows,omitempty"`
+	Truncated    bool            `json:"truncated,omitempty"`
+	MaskedFields int             `json:"masked_fields,omitempty"`
+}
+
+func encodeHumanReply(v agentModel.HumanReply, _ int) HumanReplyRep {
+	return HumanReplyRep{
+		Service: v.Service, EndpointId: v.EndpointId, Title: v.Title, Params: v.Params, StatusCode: v.StatusCode,
+		RequestId: v.RequestId, Data: v.Data, Rows: v.Rows, TotalRows: v.TotalRows, Truncated: v.Truncated, MaskedFields: v.MaskedFields,
+	}
 }
 
 // ChartRep — график: картинка (PNG в base64) и/или данные, по которым она нарисована.
@@ -157,12 +183,13 @@ type ErrorRep struct {
 // EncodeAskRep собирает ответ; charts и trace — из запроса.
 func EncodeAskRep(a *askModel.Answer, req *AskReq, loc *time.Location) *AskRep {
 	rep := &AskRep{
-		Answer:     a.Text,
-		Result:     a.Json,
-		Incomplete: a.Incomplete,
-		Charts:     lo.Map(a.Charts, func(c agentModel.Chart, _ int) ChartRep { return encodeChart(c, req.Charts, loc) }),
-		Steps:      a.Steps,
-		ToolCalls:  a.ToolCalls,
+		Answer:       a.Text,
+		Result:       a.Json,
+		Incomplete:   a.Incomplete,
+		Charts:       lo.Map(a.Charts, func(c agentModel.Chart, _ int) ChartRep { return encodeChart(c, req.Charts, loc) }),
+		HumanReplies: lo.Map(a.HumanReplies, encodeHumanReply),
+		Steps:        a.Steps,
+		ToolCalls:    a.ToolCalls,
 		Usage: UsageRep{
 			InputTokens:     a.Usage.InputTokens,
 			CachedTokens:    a.Usage.CachedTokens,

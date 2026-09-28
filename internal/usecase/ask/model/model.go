@@ -38,6 +38,8 @@ type Answer struct {
 	Json       []byte
 	Incomplete string
 	Charts     []agentModel.Chart
+	// HumanReplies — ответы ручек для человека: клиенту как есть, в журнал и историю не пишутся
+	HumanReplies []agentModel.HumanReply
 
 	Steps     int
 	ToolCalls int
