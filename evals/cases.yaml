@@ -36,6 +36,15 @@ cases:
           args: {service: caravan}
       tool_limits: {get_service_snapshot: 1}
 
+  - id: service-plain-language
+    note: в группах сидят аналитики и руководители — суть без жаргона, технические факты после «Подробности:»
+    question: у нас сейчас всё нормально с доставкой заказов?
+    checks:
+      calls: [{tool: resolve_service}]
+      # первая строка ответа — без терминов (\A — начало текста, [^\n]* — только первая строка)
+      answer_not_regex:
+        - '(?i)\A[^\n]*((^|\P{L})(под|поды|подов|деплой|выкатк\p{L}*|рестарт\p{L}*)(\P{L}|$)|5xx|\brps\b|\bp95\b|\boom\b|\bpods?\b)'
+
   - id: service-usage-translit
     note: кириллица + транслит; раньше ответ был в мCPU, МиБ и сырых байтах
     question: какое потребление сейчас у караван?
