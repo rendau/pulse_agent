@@ -25,7 +25,7 @@ func Evaluate(c Checks, rep *dto.AskRep) []string {
 	tools := lo.FilterMap(rep.Trace, func(t *dto.ToolTraceRep, _ int) (string, bool) { return t.Tool, t.Tool != skillTool })
 
 	for _, want := range c.Calls {
-		if !lo.ContainsBy(rep.Trace, func(t *dto.ToolTraceRep) bool { return t.Tool == want.Tool && argsMatch(t.Arguments, want.Args) }) {
+		if !lo.ContainsBy(rep.Trace, func(t *dto.ToolTraceRep) bool { return match(t.Tool, want.Tool) && argsMatch(t.Arguments, want.Args) }) {
 			fail("нет вызова %s", describeCall(want))
 		}
 	}
@@ -123,25 +123,21 @@ func argsMatch(arguments string, want map[string]string) bool {
 		return len(want) == 0
 	}
 
-	for key, expected := range want {
-		actual := argString(args[key])
-		switch {
-		case expected == "":
-			if actual != "" {
-				return false
-			}
-		case strings.HasPrefix(expected, "~"):
-			re, err := regexp.Compile(expected[1:])
-			if err != nil || !re.MatchString(actual) {
-				return false
-			}
-		default:
-			if actual != expected {
-				return false
-			}
-		}
+	return lo.EveryBy(lo.Keys(want), func(key string) bool { return match(argString(args[key]), want[key]) })
+}
+
+// match — значение подходит под ожидание: "" — пусто, "~регэксп" — подходит под регэксп, иначе —
+// равно строкой.
+func match(actual, expected string) bool {
+	switch {
+	case expected == "":
+		return actual == ""
+	case strings.HasPrefix(expected, "~"):
+		re, err := regexp.Compile(expected[1:])
+		return err == nil && re.MatchString(actual)
+	default:
+		return actual == expected
 	}
-	return true
 }
 
 func argString(v any) string {

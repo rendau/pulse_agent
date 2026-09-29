@@ -95,6 +95,19 @@ func TestEvaluate(t *testing.T) {
 	assert.Equal(t, []string{"графиков 2, ожидалось 1–1"}, failures)
 }
 
+// Имя инструмента регэкспом: «заглянул к соседу» — любым из инструментов, но именно к нему.
+func TestEvaluate_ToolPattern(t *testing.T) {
+	checks := Checks{Calls: []CallCheck{
+		{Tool: "~^(get_service_snapshot|call_service_endpoint)$", Args: map[string]string{"service": "onec-proxy"}},
+	}}
+
+	assert.Empty(t, Evaluate(checks, rep("ok", [2]string{"call_service_endpoint", `{"service":"onec-proxy","endpoint_id":"db_state"}`})))
+	assert.Equal(t, []string{"нет вызова ~^(get_service_snapshot|call_service_endpoint)$(service=onec-proxy)"}, Evaluate(checks, rep("ok",
+		[2]string{"get_service_snapshot", `{"service":"seller"}`},
+		[2]string{"get_service_info", `{"service":"onec-proxy"}`},
+	)))
+}
+
 func TestArgsMatch(t *testing.T) {
 	assert.True(t, argsMatch(`{"window":"24h","limit":5}`, map[string]string{"window": "24h", "limit": "5"}))
 	assert.False(t, argsMatch(`{"window":"6h"}`, map[string]string{"window": "24h"}))

@@ -3,7 +3,7 @@
 # параметрами, чего не должно быть в ответе, нужен ли график, время и токены.
 #
 # checks:
-#   calls:            вызовы, которые должны быть: tool + подмножество args
+#   calls:            вызовы, которые должны быть: tool (имя или "~регэксп") + подмножество args
 #                     (значение строкой; "" — аргумента нет или пустой; "~регэксп")
 #   no_calls:         инструменты, которых быть не должно
 #   tool_limits:      {инструмент: N} — не больше N вызовов (повторы одного поиска)
@@ -90,6 +90,18 @@ cases:
       calls:
         - tool: get_dependencies
           args: {service: delivery}
+
+  - id: dependency-neighbor
+    note: >-
+      причина у соседа — агент сам смотрит подробности в его ручке (какие базы сбоят), а не
+      останавливается на снапшоте соседа и не советует человеку «проверить узлы 1С»
+    question: почему у seller бывают ошибки при работе с 1С?
+    checks:
+      calls:
+        - tool: '~^(get_service_snapshot|query_logs)$'
+          args: {service: seller}
+        - tool: call_service_endpoint
+          args: {service: onec-proxy, endpoint_id: '~^db_(state|check)$'}
 
   # --- кластер ---
   - id: cluster-errors
