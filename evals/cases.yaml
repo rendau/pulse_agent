@@ -105,13 +105,15 @@ cases:
 
   # --- кластер ---
   - id: cluster-errors
-    note: раньше бот переспрашивал, по какому сервису
+    note: >-
+      раньше бот переспрашивал, по какому сервису; при живом инциденте — снапшоты 1–3 пострадавших
+      (навык cluster) и сосед-причина (1–2): здоровье + навык + 3 + 2 = 7
     question: есть ли ошибки в логах кластера?
     checks:
       first_call: get_cluster_health
       no_calls: [query_logs]
       answer_not_regex: ['(?i)какой сервис|по какому сервису|уточните сервис']
-      max_tool_calls: 3
+      max_tool_calls: 7
 
   - id: cluster-errors-day-chart
     question: какие сервисы больше всего ошибаются в логах за сутки?
