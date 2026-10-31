@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/mechta-market/mobone/v2"
+	"github.com/rendau/mobone/v2"
 	"github.com/samber/lo"
 
 	commonRepoPg "github.com/rendau/pulse_agent/internal/domain/common/repo/pg"
