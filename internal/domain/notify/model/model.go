@@ -2,6 +2,7 @@ package model
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -46,7 +47,17 @@ const (
 	OutcomeQuiet      = "quiet"      // разобран агентом — сообщать не о чем
 	OutcomeHealthy    = "healthy"    // выкатка проверена: снапшот healthy, без разбора
 	OutcomeSuperseded = "superseded" // выкатку сменила следующая — проверяется она
+	OutcomeDuplicate  = "duplicate"  // о том же (адрес атаки) уже сообщила внешняя находка
 )
+
+// FindingSignalPrefix — SignalKey уведомления из внешней находки (POST /v1/findings):
+// «finding:<клиент>»; у разборов наблюдателя — ключ сигнала.
+const FindingSignalPrefix = "finding:"
+
+// FromFinding — уведомление пришло внешней находкой, а не разбором наблюдателя.
+func (n *Notification) FromFinding() bool {
+	return strings.HasPrefix(n.SignalKey, FindingSignalPrefix)
+}
 
 // Signal — событие из pulse, которое наблюдатель разбирает: выкатка (через DeployDelay после
 // неё) или алерт (сразу). Key — дедупликация: выкатка — один раз, алерт сервиса — не чаще раза

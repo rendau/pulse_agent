@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,6 +136,21 @@ func TestLive(t *testing.T) {
 		last, err := repo.LastNotificationId(ctx)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, last, n.Id)
+
+		addr := fmt.Sprintf("10.%d.0.1", now.UnixNano()%250)
+		attack := &model.Notification{At: now, Kind: model.KindSecurity, Key: addr, Severity: "critical", Title: "атака", SignalKey: "finding:pulse"}
+		require.NoError(t, repo.CreateNotification(ctx, attack))
+		recent, err := repo.LastNotification(ctx, model.KindSecurity, addr, now.Add(-time.Hour))
+		require.NoError(t, err)
+		require.NotNil(t, recent)
+		assert.Equal(t, attack.Id, recent.Id)
+		assert.True(t, recent.FromFinding())
+		recent, err = repo.LastNotification(ctx, model.KindSecurity, addr, now.Add(time.Minute))
+		require.NoError(t, err)
+		assert.Nil(t, recent, "раньше since")
+		recent, err = repo.LastNotification(ctx, model.KindAlert, addr, now.Add(-time.Hour))
+		require.NoError(t, err)
+		assert.Nil(t, recent, "другой вид")
 
 		mute := &model.Mute{Client: "live-test", ConversationId: "-100", Service: "live-svc", Until: new(now.Add(time.Hour)), CreatedAt: now, CreatedBy: "Иван"}
 		require.NoError(t, repo.CreateMute(ctx, mute))

@@ -22,6 +22,8 @@ type RepoI interface {
 	// CreateNotification сохраняет уведомление и проставляет Id.
 	CreateNotification(ctx context.Context, n *model.Notification) error
 	GetNotification(ctx context.Context, id int64) (*model.Notification, error)
+	// LastNotification — последнее уведомление вида kind с ключом key не раньше since; нет — nil.
+	LastNotification(ctx context.Context, kind, key string, since time.Time) (*model.Notification, error)
 	ListNotifications(ctx context.Context, f model.NotificationFilter) ([]*model.Notification, error)
 	LastNotificationId(ctx context.Context) (int64, error)
 	// CountInvestigatedSince — сколько сигналов разобрал агент (исходы notified и quiet) по фильтру.

@@ -1,6 +1,6 @@
 // Package http — JSON API агента для систем-клиентов (бот, service-desk, разбор алертов):
 // POST /v1/ask, /v1/reset, /v1/eval; лента уведомлений наблюдателя, приглушения и заметки
-// беседы (notify.go). У каждой системы свой bearer-ключ (API_KEYS): по нему
+// беседы (notify.go), приём внешних находок об атаках (finding.go). У каждой системы свой bearer-ключ (API_KEYS): по нему
 // известно, кто спрашивает, — журнал, метрики и свои беседы. Ключ разработчика (DEBUG_TOKEN)
 // открывает ещё /debug/* (debug.go): мониторинг и прогон эталонных вопросов.
 package http
@@ -47,6 +47,7 @@ const (
 	codeForbidden      = "forbidden"
 	codeNotFound       = "not_found"
 	codeTimeout        = "timeout"
+	codeRateLimited    = "rate_limited"
 	codeCanceled       = "canceled"
 	codeInternal       = "internal"
 )
@@ -65,7 +66,8 @@ type Config struct {
 
 type Handler struct {
 	ask         AskUsecaseI
-	notify      NotifyUsecaseI // nil — без хранилища
+	notify      NotifyUsecaseI  // nil — без хранилища
+	finding     FindingUsecaseI // nil — без хранилища
 	monitor     MonitorUsecaseI
 	keeper      EvalKeeperI
 	keys        map[string][]byte // клиент → ключ
@@ -74,7 +76,7 @@ type Handler struct {
 	loc         *time.Location
 }
 
-func New(cfg Config, ask AskUsecaseI, notify NotifyUsecaseI, monitor MonitorUsecaseI, keeper EvalKeeperI, loc *time.Location) *Handler {
+func New(cfg Config, ask AskUsecaseI, notify NotifyUsecaseI, finding FindingUsecaseI, monitor MonitorUsecaseI, keeper EvalKeeperI, loc *time.Location) *Handler {
 	keys := lo.MapValues(cfg.Keys, func(key string, _ string) []byte { return []byte(key) })
 	if cfg.DebugToken != "" {
 		keys[ClientDebug] = []byte(cfg.DebugToken)
@@ -82,6 +84,7 @@ func New(cfg Config, ask AskUsecaseI, notify NotifyUsecaseI, monitor MonitorUsec
 	return &Handler{
 		ask:         ask,
 		notify:      notify,
+		finding:     finding,
 		monitor:     monitor,
 		keeper:      keeper,
 		keys:        keys,
@@ -97,6 +100,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+PathReset, h.withClient(h.Reset))
 	mux.HandleFunc("POST "+PathEval, h.withClient(h.Eval))
 	h.registerNotify(mux)
+	h.registerFinding(mux)
 	h.registerDebug(mux)
 }
 
@@ -223,6 +227,8 @@ func writeFail(w http.ResponseWriter, r *http.Request, client string, err error)
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 	case errors.Is(err, errs.ObjectNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, err.Error())
+	case errors.Is(err, errs.RateLimited):
+		writeError(w, http.StatusTooManyRequests, codeRateLimited, err.Error())
 	case errors.Is(err, errs.Busy):
 		writeError(w, http.StatusConflict, codeBusy, lo.Ternary(err.Error() == errs.Busy.Error(),
 			"previous question in this conversation is still running", err.Error()))

@@ -50,7 +50,7 @@ var metricSignals *prometheus.CounterVec
 func init() {
 	metricSignals = metrics.Factory.NewCounterVec(prometheus.CounterOpts{
 		Name: "watch_signal_total",
-		Help: "Сигналы наблюдателя по виду и исходу: notified, raw, quiet, healthy, superseded.",
+		Help: "Сигналы наблюдателя по виду и исходу: notified, raw, quiet, healthy, superseded, duplicate.",
 	}, []string{"kind", "outcome"})
 }
 
@@ -205,6 +205,16 @@ func (s *Service) handle(ctx context.Context, signal *notifyModel.Signal) error 
 
 	// у атак свой лимит разборов: шквал адресов не съедает разборы выкаток и алертов
 	security := signal.Kind == notifyModel.KindSecurity
+	if security {
+		// об этом адресе уже сообщила внешняя находка (расписание Claude) — второй тревоги не нужно
+		recent, err := s.notify.Recent(ctx, notifyModel.KindSecurity, signalRef(signal), s.cfg.AlertRepeat)
+		if err != nil {
+			return fmt.Errorf("notify.Recent: %w", err)
+		}
+		if recent != nil && recent.FromFinding() {
+			return s.finish(ctx, signal, notifyModel.OutcomeDuplicate, &recent.Id)
+		}
+	}
 	pool := notifyModel.InvestigatedFilter{Since: s.now().Add(-time.Hour), ExceptKinds: []string{notifyModel.KindSecurity}}
 	limit := s.cfg.MaxRunsPerHour
 	if security {

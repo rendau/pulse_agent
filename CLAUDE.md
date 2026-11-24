@@ -61,7 +61,9 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `internal/handler/http/` — JSON-API: `POST /v1/ask`, `POST /v1/reset`, `POST /v1/eval` (прогон
   эталонов — системам из `EVAL_CLIENTS`); bearer-ключ → имя системы (`withClient`, сравнение за
   постоянное время); `dto/` — контракт (`docs/agent-api.md`), неизвестные поля запроса — 400; коды
-  ошибок `invalid_request`/`unauthorized`/`forbidden`/`busy`/`canceled`/`timeout`/`internal`.
+  ошибок `invalid_request`/`unauthorized`/`forbidden`/`busy`/`rate_limited`/`canceled`/`timeout`/`internal`.
+  `finding.go` — `POST /v1/findings`: внешняя находка об атаке (расписание Claude → pulse
+  `report_security_finding` → сюда, клиент `pulse`).
   `debug.go` — ручки разработчика (только `DEBUG_TOKEN`; он же годится для `/v1/*` как система
   `debug`): `POST /debug/eval`, `GET /debug/eval/last`,
   `GET /debug/recent?client=&outcome=&limit=&before_id=` (список без ответа и хода разбора, новые —
@@ -76,6 +78,12 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `internal/usecase/notify/` — лента уведомлений для беседы (курсор беседы: первый вызов подписывает
   с текущего места, `Ack` — получено), подписки, приглушения, заметки беседы (`/v1/notifications`,
   `/v1/subscriptions`, `/v1/mutes`, `/v1/chat`; `handler/http/notify.go`, без хранилища — 503 `unavailable`).
+- `internal/usecase/finding/` — приём внешних находок: проверка (только `security`, `warning`/`critical`,
+  ключ `security:<адрес>`), очистка и обрезка (заголовок 120, текст 2000), источник — в конце текста;
+  уведомление сразу, без модели (`SignalKey` = `finding:<клиент>`); об адресе, о котором уже было
+  уведомление `security` за `WATCH_ALERT_REPEAT` (`notify.Recent`), — нет (`deduplicated`); лимит
+  `FINDINGS_PER_HOUR` на клиента — в памяти. Наблюдатель тоже не тревожит повторно об адресе находки
+  (исход `duplicate`).
 - `internal/usecase/monitor/` — мониторинг для `/debug/*`: последние вопросы, вопрос целиком,
   сводка по журналу за окно, сведения об агенте и доступность pulse (каталог инструментов).
 - `internal/domain/journal/` — журнал вопросов (кто, что, исход, время, инструменты, токены,
@@ -322,7 +330,8 @@ domain service → repo
   `PII_TOKEN_KEY` (секрет, ≥32 случайных символа; пусто — токены меняются после рестарта),
   `PII_PHONE_COUNTRY_CODE` (7). Наблюдатель: `WATCH_ENABLED` (true), `WATCH_INTERVAL` (1m),
   `WATCH_DEPLOY_DELAY` (15m), `WATCH_ALERT_REPEAT` (6h), `WATCH_MAX_RUNS_PER_HOUR` (20),
-  `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5). Атаки
+  `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5).
+  Внешние находки: `FINDINGS_PER_HOUR` (10). Атаки
   (`security`): `WATCH_SECURITY_INTERVAL` (10m, 0 — выключено), `WATCH_SECURITY_MAX_RUNS_PER_HOUR` (6),
   `WATCH_SECURITY_4XX_MIN` (300), `WATCH_SECURITY_4XX_SHARE` (0.8), `WATCH_SECURITY_STRONG_MIN` (3),
   `WATCH_SECURITY_PROBE_MIN` (50), `WATCH_SECURITY_SENSITIVE_MIN` (100), `WATCH_SECURITY_SENSITIVE_RARE`

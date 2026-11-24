@@ -93,6 +93,8 @@ type fakeNotify struct {
 	superseded    bool
 	runs          int
 	securityRuns  int
+	recent        *notifyModel.Notification
+	recentAsked   []string
 	notifications []*notifyModel.Notification
 	finished      map[string]string
 	retried       []string
@@ -118,6 +120,11 @@ func (n *fakeNotify) InvestigatedSince(_ context.Context, f notifyModel.Investig
 		return 0, errors.New("у атак — свой лимит: фильтр должен их исключать")
 	}
 	return n.runs, nil
+}
+
+func (n *fakeNotify) Recent(_ context.Context, kind, key string, _ time.Duration) (*notifyModel.Notification, error) {
+	n.recentAsked = append(n.recentAsked, kind+":"+key)
+	return n.recent, nil
 }
 
 func (n *fakeNotify) Notify(_ context.Context, x *notifyModel.Notification) error {

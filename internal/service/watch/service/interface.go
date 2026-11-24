@@ -27,6 +27,7 @@ type notifyI interface {
 	Retry(ctx context.Context, key string, after time.Duration) error
 	Notify(ctx context.Context, n *notifyModel.Notification) error
 	InvestigatedSince(ctx context.Context, f notifyModel.InvestigatedFilter) (int, error)
+	Recent(ctx context.Context, kind, key string, within time.Duration) (*notifyModel.Notification, error)
 	Cleanup(ctx context.Context, keep time.Duration) error
 }
 

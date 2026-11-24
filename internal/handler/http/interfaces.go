@@ -8,6 +8,7 @@ import (
 	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 	"github.com/rendau/pulse_agent/internal/eval"
 	askModel "github.com/rendau/pulse_agent/internal/usecase/ask/model"
+	findingModel "github.com/rendau/pulse_agent/internal/usecase/finding/model"
 	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 )
 
@@ -42,4 +43,9 @@ type NotifyUsecaseI interface {
 	Subscribe(ctx context.Context, client, conversationId string, spec *notifyModel.SubscriptionSpec) (*notifyModel.Subscription, error)
 	Unsubscribe(ctx context.Context, client, conversationId string, id int64) error
 	Subscriptions(ctx context.Context, client, conversationId string) ([]*notifyModel.Subscription, error)
+}
+
+// FindingUsecaseI — приём внешних находок об атаках; nil — без хранилища (503).
+type FindingUsecaseI interface {
+	Report(ctx context.Context, client string, f *findingModel.Finding) (*findingModel.Result, error)
 }

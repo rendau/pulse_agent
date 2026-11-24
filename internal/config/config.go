@@ -96,6 +96,10 @@ var Conf = struct {
 	WatchSecuritySensitiveRare    []string `env:"WATCH_SECURITY_SENSITIVE_RARE" envSeparator:"," envDefault:"sync_perms,new_refresh_token,/onec_proxy/send,/ab/v1/payment"`
 	WatchSecuritySensitiveRareMin int      `env:"WATCH_SECURITY_SENSITIVE_RARE_MIN" envDefault:"2"`
 
+	// внешние находки об атаках (POST /v1/findings, расписание Claude через pulse): не больше
+	// стольких в час от одного клиента, сверх — 429
+	FindingsPerHour int `env:"FINDINGS_PER_HOUR" envDefault:"10"`
+
 	// графики к ответам: dark | light (тему пользователя клиенты не сообщают — одна на сервис)
 	ChartTheme string `env:"CHART_THEME" envDefault:"dark"`
 }{}

@@ -163,3 +163,22 @@ func TestSecurityQuietOnlyForProbe(t *testing.T) {
 	require.Len(t, notify.notifications, 1)
 	assert.Contains(t, notify.notifications[0].Text, "неопасным")
 }
+
+func TestSecurityDuplicateOfFinding(t *testing.T) {
+	agent := &fakeAgent{}
+	notify := &fakeNotify{recent: &notifyModel.Notification{Id: 7, Kind: notifyModel.KindSecurity, Key: "129.226.55.176", SignalKey: "finding:pulse"}}
+	s := newTestService(&fakePulse{}, agent, notify, &fakeJournal{})
+	s.cfg.Security = testSecurity
+	signal := securitySignal(t, levelAttack)
+
+	require.NoError(t, s.handle(context.Background(), signal))
+	assert.Equal(t, []string{"security:129.226.55.176"}, notify.recentAsked)
+	assert.Equal(t, notifyModel.OutcomeDuplicate, notify.finished[signal.Key], "об адресе уже сообщило расписание")
+	assert.Zero(t, agent.runs)
+	assert.Empty(t, notify.notifications)
+
+	notify.recent.SignalKey = "security:129.226.55.176:probe"
+	agent.verdict = `{"notify":true,"severity":"warning","title":"атака","text":"x"}`
+	require.NoError(t, s.handle(context.Background(), signal))
+	assert.Equal(t, 1, agent.runs, "своё прошлое уведомление наблюдателя (разведка) не мешает перебору")
+}

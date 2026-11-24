@@ -19,6 +19,8 @@ const (
 	InvalidRequest = Err("invalid_request")
 	// Busy — в чате уже идёт разбор предыдущего вопроса
 	Busy = Err("busy")
+	// RateLimited — система прислала больше разрешённого за время (429)
+	RateLimited = Err("rate_limited")
 )
 
 type ErrFull struct {

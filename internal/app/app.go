@@ -45,6 +45,7 @@ import (
 	"github.com/rendau/pulse_agent/internal/service/watch"
 	serviceWatchServiceP "github.com/rendau/pulse_agent/internal/service/watch/service"
 	usecaseAskP "github.com/rendau/pulse_agent/internal/usecase/ask"
+	usecaseFindingP "github.com/rendau/pulse_agent/internal/usecase/finding"
 	usecaseMonitorP "github.com/rendau/pulse_agent/internal/usecase/monitor"
 	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 	usecaseNotifyP "github.com/rendau/pulse_agent/internal/usecase/notify"
@@ -189,8 +190,13 @@ func (a *App) Init() {
 
 	// notify (лента для бесед клиентов) и наблюдатель
 	var notifyUsecase handlerHttpP.NotifyUsecaseI
+	var findingUsecase handlerHttpP.FindingUsecaseI
 	if notifyService != nil {
 		notifyUsecase = usecaseNotifyP.New(chatService, notifyService)
+		findingUsecase = usecaseFindingP.New(usecaseFindingP.Config{
+			Repeat:  config.Conf.WatchAlertRepeat,
+			PerHour: config.Conf.FindingsPerHour,
+		}, notifyService)
 		if config.Conf.WatchEnabled {
 			a.watch = serviceWatchServiceP.New(serviceWatchServiceP.Config{
 				Interval:        config.Conf.WatchInterval,
@@ -251,7 +257,7 @@ func (a *App) Init() {
 			DebugToken:  config.Conf.DebugToken,
 			EvalClients: config.Conf.EvalClients,
 			EvalTimeout: config.Conf.EvalTimeout,
-		}, askUsecase, notifyUsecase, monitorUsecase, evalKeeper, location)
+		}, askUsecase, notifyUsecase, findingUsecase, monitorUsecase, evalKeeper, location)
 		a.httpServer = HttpServerCreate(config.Conf.HttpPort, handler, a.ctx)
 	}
 

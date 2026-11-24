@@ -132,6 +132,23 @@ func (r *Repo) GetNotification(ctx context.Context, id int64) (*model.Notificati
 	return n, nil
 }
 
+func (r *Repo) LastNotification(ctx context.Context, kind, key string, since time.Time) (*model.Notification, error) {
+	rows, err := r.Con.Query(ctx, `
+		select `+notificationColumns+` from notification
+		where kind = $1 and key = $2 and at >= $3 order by at desc, id desc limit 1`, kind, key, since)
+	if err != nil {
+		return nil, fmt.Errorf("Con.Query: %w", err)
+	}
+	n, err := pgx.CollectOneRow(rows, scanNotification)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("CollectOneRow: %w", err)
+	}
+	return n, nil
+}
+
 func (r *Repo) ListNotifications(ctx context.Context, f model.NotificationFilter) ([]*model.Notification, error) {
 	q := r.QB.Select(notificationColumns).From("notification").OrderBy("id")
 	if f.AfterId > 0 {
