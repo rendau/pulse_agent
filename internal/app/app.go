@@ -213,6 +213,7 @@ func (a *App) Init() {
 					Brute4xxMin:      config.Conf.WatchSecurity4xxMin,
 					Brute4xxShare:    config.Conf.WatchSecurity4xxShare,
 					StrongMin:        config.Conf.WatchSecurityStrongMin,
+					MetadataMin:      config.Conf.WatchSecurityMetadataMin,
 					ProbeMin:         config.Conf.WatchSecurityProbeMin,
 					SensitiveMin:     config.Conf.WatchSecuritySensitiveMin,
 					SensitiveRareMin: config.Conf.WatchSecuritySensitiveRareMin,

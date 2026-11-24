@@ -39,7 +39,10 @@ const (
 // strongSignatures — признаки взлома в путях, которых у обычных клиентов не бывает: обход
 // каталогов, закодированные точки и слэши, адрес метаданных облака. Остальные (api_docs, admin,
 // actuator, dotenv, git, wordpress) — фон сканеров интернета и любопытных пользователей.
-var strongSignatures = []string{"path_traversal", "encoded_dot", "encoded_slash", "cloud_metadata"}
+var strongSignatures = []string{"path_traversal", "encoded_dot", "encoded_slash", signatureMetadata}
+
+// signatureMetadata — обращение к адресу метаданных облака (169.254.169.254)
+const signatureMetadata = "cloud_metadata"
 
 // SecurityConfig — пороги сигнала атаки за окно опроса (интервал + securityOverlap), по чужим
 // адресам (свои — own в ответе pulse — не проверяются).
@@ -53,8 +56,11 @@ type SecurityConfig struct {
 	Brute4xxShare float64
 	// StrongMin — запросов с явными признаками взлома (strongSignatures) не меньше
 	StrongMin int
+	// MetadataMin — обращений к адресу метаданных облака (169.254.169.254) не меньше: снаружи
+	// туда не ходит никто, кроме взломщика
+	MetadataMin int
 	// ProbeMin — запросов с любыми признаками взлома (разведка: документация API, admin,
-	// actuator, .env, .git) не меньше
+	// actuator, .env, .git) не меньше; 0 — не смотреть: у сканеров интернета это фон
 	ProbeMin int
 	// SensitiveMin — обращений к чувствительным ручкам с одного адреса не меньше
 	SensitiveMin int
@@ -118,6 +124,7 @@ type suspect struct {
 	Share4xx   float64        `json:"share_4xx,omitempty"`
 	Paths      int            `json:"distinct_paths,omitempty"`
 	Strong     int            `json:"strong_signature_hits,omitempty"`
+	Metadata   int            `json:"cloud_metadata_hits,omitempty"`
 	Probe      int            `json:"signature_hits,omitempty"`
 	Signatures map[string]int `json:"signatures,omitempty"`
 	Sensitive  map[string]int `json:"sensitive,omitempty"`
@@ -190,6 +197,9 @@ func suspects(rep *edgeRep, cfg SecurityConfig, window string) []*suspect {
 			if slices.Contains(strongSignatures, sig.Value) {
 				s.Strong += int(sig.Count)
 			}
+			if sig.Value == signatureMetadata {
+				s.Metadata += int(sig.Count)
+			}
 		}
 		s.Probe = int(v.Hits)
 	}
@@ -217,7 +227,7 @@ func suspects(rep *edgeRep, cfg SecurityConfig, window string) []*suspect {
 		if cfg.SensitiveMin > 0 && sensitive >= cfg.SensitiveMin || cfg.SensitiveRareMin > 0 && rare >= cfg.SensitiveRareMin {
 			s.Reasons = append(s.Reasons, "sensitive")
 		}
-		if cfg.StrongMin > 0 && s.Strong >= cfg.StrongMin {
+		if cfg.StrongMin > 0 && s.Strong >= cfg.StrongMin || cfg.MetadataMin > 0 && s.Metadata >= cfg.MetadataMin {
 			s.Reasons = append(s.Reasons, "exploit_paths")
 		}
 		if cfg.ProbeMin > 0 && s.Probe >= cfg.ProbeMin {
@@ -230,7 +240,7 @@ func suspects(rep *edgeRep, cfg SecurityConfig, window string) []*suspect {
 		if lo.Contains(s.Reasons, "bruteforce") || lo.Contains(s.Reasons, "sensitive") {
 			s.Level = levelAttack
 		}
-		s.score = s.Resp4xx + sensitive + 100*rare + 100*s.Strong + 10*s.Probe
+		s.score = s.Resp4xx + sensitive + 100*rare + 100*s.Strong + 1000*s.Metadata + 10*s.Probe
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {

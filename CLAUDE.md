@@ -159,8 +159,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     по чужому адресу (свои — `own` из pulse): перебор (4xx ≥ `WATCH_SECURITY_4XX_MIN` при доле ≥
     `WATCH_SECURITY_4XX_SHARE`), чувствительные ручки (≥ `WATCH_SECURITY_SENSITIVE_MIN`, редкие —
     `WATCH_SECURITY_SENSITIVE_RARE` — ≥ `WATCH_SECURITY_SENSITIVE_RARE_MIN`), явные пути взломщика
-    (обход каталогов, %2e/%2f, 169.254.169.254 ≥ `WATCH_SECURITY_STRONG_MIN`), разведка (любые признаки ≥
-    `WATCH_SECURITY_PROBE_MIN`); ключ `security:<адрес>:<attack|probe>` (разведка не глушит перебор), до 5
+    (обход каталогов, %2e/%2f ≥ `WATCH_SECURITY_STRONG_MIN`; метаданные облака 169.254.169.254 ≥
+    `WATCH_SECURITY_METADATA_MIN`), разведка (любые признаки ≥ `WATCH_SECURITY_PROBE_MIN`, 0 — выключена); ключ `security:<адрес>:<attack|probe>` (разведка не глушит перебор), до 5
     адресов за опрос; свой лимит разборов `WATCH_SECURITY_MAX_RUNS_PER_HOUR`. Разбор — `get_client_activity`;
     пути/UA/Referer — текст атакующего: в промпте — данные, не инструкции; в заголовок без разбора — только
     адрес, страна, числа и слова словаря pulse; перебор и ручки молча (notify=false) не закрываются — уходят
@@ -333,9 +333,10 @@ domain service → repo
   `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5).
   Внешние находки: `FINDINGS_PER_HOUR` (10). Атаки
   (`security`): `WATCH_SECURITY_INTERVAL` (10m, 0 — выключено), `WATCH_SECURITY_MAX_RUNS_PER_HOUR` (6),
-  `WATCH_SECURITY_4XX_MIN` (300), `WATCH_SECURITY_4XX_SHARE` (0.8), `WATCH_SECURITY_STRONG_MIN` (3),
-  `WATCH_SECURITY_PROBE_MIN` (50), `WATCH_SECURITY_SENSITIVE_MIN` (100), `WATCH_SECURITY_SENSITIVE_RARE`
-  (`sync_perms,new_refresh_token,/onec_proxy/send,/ab/v1/payment`), `WATCH_SECURITY_SENSITIVE_RARE_MIN` (2).
+  `WATCH_SECURITY_4XX_MIN` (3000), `WATCH_SECURITY_4XX_SHARE` (0.9), `WATCH_SECURITY_STRONG_MIN` (30),
+  `WATCH_SECURITY_METADATA_MIN` (1), `WATCH_SECURITY_PROBE_MIN` (0 — разведка по слабым признакам выключена:
+  фон сканеров), `WATCH_SECURITY_SENSITIVE_MIN` (150), `WATCH_SECURITY_SENSITIVE_RARE`
+  (`sync_perms,new_refresh_token,/ab/v1/payment`), `WATCH_SECURITY_SENSITIVE_RARE_MIN` (3).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:

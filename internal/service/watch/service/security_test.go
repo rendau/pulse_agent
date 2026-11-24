@@ -26,7 +26,9 @@ const edgeTraffic = `{"start":"2026-11-23T19:30:00+05:00","end":"2026-11-23T19:4
  "signatures":[
   {"addr":"129.226.55.176","hits":25,"requests":8242,"signatures":[{"value":"api_docs","count":20},{"value":"admin","count":5}]},
   {"addr":"35.240.21.102","hits":12,"requests":13,"signatures":[{"value":"dotenv","count":12}]},
-  {"addr":"45.9.9.9","hits":4,"requests":30,"signatures":[{"value":"encoded_slash","count":3},{"value":"path_traversal","count":3}]}
+  {"addr":"45.9.9.9","hits":4,"requests":30,"signatures":[{"value":"encoded_slash","count":3},{"value":"path_traversal","count":3}]},
+  {"addr":"46.1.1.1","hits":1,"requests":3,"signatures":[{"value":"cloud_metadata","count":1}]},
+  {"addr":"91.92.47.40","hits":300,"requests":340,"signatures":[{"value":"dotenv","count":290},{"value":"git","count":10}]}
  ],
  "sensitive":[
   {"endpoint":"/cb/sms/","requests":7590,"clients":7,"top":[{"addr":"129.226.55.176","hits":7555},{"addr":"85.117.125.43","hits":16}]},
@@ -38,7 +40,7 @@ const edgeTraffic = `{"start":"2026-11-23T19:30:00+05:00","end":"2026-11-23T19:4
 
 var testSecurity = SecurityConfig{
 	Interval: 10 * time.Minute, MaxRunsPerHour: 6,
-	Brute4xxMin: 300, Brute4xxShare: 0.8, StrongMin: 3, ProbeMin: 50,
+	Brute4xxMin: 2500, Brute4xxShare: 0.9, StrongMin: 3, MetadataMin: 1,
 	SensitiveMin: 100, SensitiveRareMin: 2, SensitiveRare: []string{"sync_perms", "new_refresh_token", "/onec_proxy/send", "/ab/v1/payment"},
 }
 
@@ -51,9 +53,9 @@ func TestSuspects(t *testing.T) {
 	for _, s := range got {
 		addrs = append(addrs, s.Addr)
 	}
-	assert.Equal(t, []string{"129.226.55.176", "77.7.7.7", "45.9.9.9"}, addrs,
-		"перебор, редкая ручка, явные пути взломщика; не тревога: свой адрес, киоск с 40% 4xx, сканер .env, "+
-			"обычный пользователь СМС, вебхук партнёра, адрес не IP")
+	assert.Equal(t, []string{"129.226.55.176", "77.7.7.7", "46.1.1.1", "45.9.9.9"}, addrs,
+		"перебор, редкая ручка, метаданные облака, явные пути взломщика; не тревога: свой адрес, киоск с 40% 4xx, "+
+			"сканеры .env (разведка выключена), обычный пользователь СМС, вебхук партнёра, адрес не IP")
 
 	attacker := got[0]
 	assert.Equal(t, levelAttack, attacker.Level)
@@ -64,8 +66,10 @@ func TestSuspects(t *testing.T) {
 
 	assert.Equal(t, levelAttack, got[1].Level, "чувствительная ручка, куда снаружи не ходят")
 	assert.Equal(t, []string{"sensitive"}, got[1].Reasons)
-	assert.Equal(t, levelProbe, got[2].Level, "только пути взломщика — разведка")
-	assert.Equal(t, 6, got[2].Strong)
+	assert.Equal(t, levelProbe, got[2].Level, "метаданные облака — пути взломщика")
+	assert.Equal(t, 1, got[2].Metadata)
+	assert.Equal(t, levelProbe, got[3].Level, "только пути взломщика — разведка")
+	assert.Equal(t, 6, got[3].Strong)
 
 	summary := attacker.summary()
 	assert.Contains(t, summary, "атака с 129.226.55.176 (HK) за 15m")
@@ -83,7 +87,7 @@ func TestCollectSecurity(t *testing.T) {
 	require.NoError(t, s.collectSecurity(context.Background()))
 	require.Equal(t, []string{"get_edge_traffic"}, pulse.calls, "один вызов за опрос")
 	assert.JSONEq(t, `{"window":"15m0s","top":50}`, pulse.args[0], "окно — интервал с перекрытием")
-	assert.Equal(t, []string{"security:129.226.55.176:attack", "security:77.7.7.7:attack", "security:45.9.9.9:probe"}, notify.observed)
+	assert.Equal(t, []string{"security:129.226.55.176:attack", "security:77.7.7.7:attack", "security:46.1.1.1:probe", "security:45.9.9.9:probe"}, notify.observed)
 
 	signal := notify.signals[0]
 	assert.Equal(t, notifyModel.KindSecurity, signal.Kind)
