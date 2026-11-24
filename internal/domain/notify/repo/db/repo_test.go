@@ -82,9 +82,22 @@ func TestLive(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, ok, "прошло больше AlertRepeat — снова")
 
-		n, err := repo.CountInvestigatedSince(ctx, now.Add(-time.Minute))
+		n, err := repo.CountInvestigatedSince(ctx, model.InvestigatedFilter{Since: now.Add(-time.Minute)})
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, n, 0)
+
+		attack := &model.Signal{Key: "live:security:1", Kind: model.KindSecurity, At: now, DueAt: now, Status: model.SignalPending}
+		_, err = repo.TouchSignal(ctx, attack, 6*time.Hour, now)
+		require.NoError(t, err)
+		require.NoError(t, repo.FinishSignal(ctx, attack.Key, model.OutcomeNotified, nil, now))
+		security, err := repo.CountInvestigatedSince(ctx, model.InvestigatedFilter{Since: now.Add(-time.Minute), Kinds: []string{model.KindSecurity}})
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, security, 1)
+		others, err := repo.CountInvestigatedSince(ctx, model.InvestigatedFilter{Since: now.Add(-time.Minute), ExceptKinds: []string{model.KindSecurity}})
+		require.NoError(t, err)
+		all, err := repo.CountInvestigatedSince(ctx, model.InvestigatedFilter{Since: now.Add(-time.Minute)})
+		require.NoError(t, err)
+		assert.Equal(t, all, security+others, "атаки — свой счёт")
 
 		deploy := &model.Signal{Key: "live:deploy:1", Kind: model.KindDeploy, Service: "live-svc", At: now, DueAt: now, Status: model.SignalPending}
 		_, err = repo.TouchSignal(ctx, deploy, 0, now)

@@ -192,3 +192,42 @@ func TestSubscriptions(t *testing.T) {
 	_, err = s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "-100", MinSeverity: "high"})
 	require.ErrorIs(t, err, errs.InvalidRequest)
 }
+
+func TestSecurityOnlyByExplicitSubscription(t *testing.T) {
+	ctx := context.Background()
+	s := New(&fakeRepo{})
+	for _, n := range []*model.Notification{
+		{Kind: model.KindAlert, Service: "caravan", Severity: "warning"},
+		{Kind: model.KindSecurity, Key: "129.226.55.176", Severity: "critical", Title: "атака с 129.226.55.176"},
+		{Kind: model.KindDeploy, Service: "caravan", Severity: "info"},
+	} {
+		require.NoError(t, s.Notify(ctx, n))
+	}
+	delivered := func(conversation string) []int64 {
+		feed, err := s.Feed(ctx, "bot", conversation, 0, 10)
+		require.NoError(t, err)
+		return lo.FilterMap(feed, func(item *model.FeedItem, _ int) (int64, bool) {
+			return item.Notification.Id, !item.NotSubscribed && item.MutedBy == nil
+		})
+	}
+
+	_, err := s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "all"})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 3}, delivered("all"), "подписка «всё» — без security, остальное как раньше")
+
+	_, err = s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "sec", Kind: model.KindSecurity})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{2}, delivered("sec"), "явная подписка на security — только она")
+
+	_, err = s.Subscribe(ctx, &model.SubscriptionSpec{Client: "bot", ConversationId: "all", Kind: model.KindSecurity})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2, 3}, delivered("all"), "«всё» и security — всё")
+
+	m, err := s.Mute(ctx, &model.MuteSpec{Client: "bot", ConversationId: "sec", NotificationId: 2})
+	require.NoError(t, err)
+	assert.Equal(t, model.KindSecurity, m.Kind, "кнопка под атакой глушит security этого адреса, а не всё")
+	assert.Equal(t, "129.226.55.176", m.Key)
+	assert.Empty(t, delivered("sec"))
+	require.NoError(t, s.Notify(ctx, &model.Notification{Kind: model.KindSecurity, Key: "5.6.7.8", Severity: "warning"}))
+	assert.Equal(t, []int64{4}, delivered("sec"), "другой адрес — приходит")
+}

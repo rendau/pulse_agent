@@ -24,8 +24,8 @@ type RepoI interface {
 	GetNotification(ctx context.Context, id int64) (*model.Notification, error)
 	ListNotifications(ctx context.Context, f model.NotificationFilter) ([]*model.Notification, error)
 	LastNotificationId(ctx context.Context) (int64, error)
-	// CountInvestigatedSince — сколько сигналов разобрал агент с since (исходы notified и quiet).
-	CountInvestigatedSince(ctx context.Context, since time.Time) (int, error)
+	// CountInvestigatedSince — сколько сигналов разобрал агент (исходы notified и quiet) по фильтру.
+	CountInvestigatedSince(ctx context.Context, f model.InvestigatedFilter) (int, error)
 	DeleteNotificationsBefore(ctx context.Context, before time.Time) (int64, error)
 
 	// CreateMute сохраняет приглушение и проставляет Id.

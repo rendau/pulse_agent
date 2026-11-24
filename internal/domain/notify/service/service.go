@@ -80,9 +80,9 @@ func (s *Service) Notify(ctx context.Context, n *model.Notification) error {
 	return nil
 }
 
-// InvestigatedSince — сколько сигналов разобрал агент с since (лимит разборов в час).
-func (s *Service) InvestigatedSince(ctx context.Context, since time.Time) (int, error) {
-	n, err := s.repo.CountInvestigatedSince(ctx, since)
+// InvestigatedSince — сколько сигналов разобрал агент по фильтру (лимит разборов в час).
+func (s *Service) InvestigatedSince(ctx context.Context, f model.InvestigatedFilter) (int, error) {
+	n, err := s.repo.CountInvestigatedSince(ctx, f)
 	if err != nil {
 		return 0, fmt.Errorf("repo.CountInvestigatedSince: %w", err)
 	}
@@ -132,7 +132,7 @@ func (s *Service) Subscribe(ctx context.Context, spec *model.SubscriptionSpec) (
 	}
 	switch {
 	case !model.KindKnown(sub.Kind):
-		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self, public or empty (any)", errs.InvalidRequest, sub.Kind)
+		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self, public, security or empty (any)", errs.InvalidRequest, sub.Kind)
 	case !model.SeverityKnown(sub.MinSeverity):
 		return nil, fmt.Errorf("%w: min_severity %q; expected info, warning, critical or empty (any)", errs.InvalidRequest, sub.MinSeverity)
 	}
@@ -175,7 +175,7 @@ func (s *Service) Mute(ctx context.Context, spec *model.MuteSpec) (*model.Mute, 
 	case spec.For < 0:
 		return nil, fmt.Errorf("%w: negative mute duration", errs.InvalidRequest)
 	case !model.KindKnown(m.Kind):
-		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self, public or empty (any)", errs.InvalidRequest, m.Kind)
+		return nil, fmt.Errorf("%w: kind %q; expected alert, deploy, logs, self, public, security or empty (any)", errs.InvalidRequest, m.Kind)
 	}
 	if spec.NotificationId > 0 {
 		n, err := s.repo.GetNotification(ctx, spec.NotificationId)
@@ -186,6 +186,10 @@ func (s *Service) Mute(ctx context.Context, spec *model.MuteSpec) (*model.Mute, 
 			return nil, fmt.Errorf("%w: notification %d", errs.ObjectNotFound, spec.NotificationId)
 		}
 		m.Service = lo.CoalesceOrEmpty(m.Service, n.Service)
+		if model.KindExplicit(n.Kind) {
+			// атака (security) — без сервиса: кнопка под уведомлением глушит этот адрес, а не всё
+			m.Kind, m.Key = lo.CoalesceOrEmpty(m.Kind, n.Kind), lo.CoalesceOrEmpty(m.Key, n.Key)
+		}
 	}
 	if spec.For > 0 {
 		m.Until = new(m.CreatedAt.Add(spec.For))

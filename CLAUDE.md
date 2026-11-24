@@ -94,6 +94,9 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   `Covers`/`Active`); лента беседы помечает не по подпискам (`NotSubscribed`) и приглушённые (`MutedBy`,
   поверх подписок), `Muted` — что скрыто. Чистка:
   уведомления — по сроку журнала, закрытые сигналы — неделя, истёкшие приглушения — сутки.
+  Вид `security` (атака из интернета) — только по явной подписке (`KindExplicit`): подписка с пустым
+  `Kind` его не покрывает (адреса и подробности атак — не всем чатам); у уведомления нет сервиса, `Key`
+  — адрес; кнопка приглушения под ним глушит этот адрес (вид + ключ), а не всё.
 - `internal/domain/dialog/` — история беседы: пары «вопрос — итоговый ответ» (без вызовов
   инструментов), последние N, сброс после тишины; `repo/mem` — в памяти процесса.
 - `internal/service/` — сервисные модули (раскладка — скилл `golang-service`):
@@ -143,7 +146,17 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     (не меньше `WATCH_LOG_ERRORS_MIN` и в `WATCH_LOG_ERRORS_FACTOR` раз выше медианы 12 прошлых опросов;
     обычный уровень — в памяти, первые 3 опроса после старта — без сигналов), `self` — самоотчёт не ok
     (`self_reported`), `public` — приложение API-gateway с проблемой (`public_apps`: пороги и правила —
-    в pulse; ключ `public:<app>`, сервис — бэкенд, иначе имя приложения). Повтор одного сигнала сервиса — не чаще `WATCH_ALERT_REPEAT`. Выкатка
+    в pulse; ключ `public:<app>`, сервис — бэкенд, иначе имя приложения). Раз в `WATCH_SECURITY_INTERVAL`
+    (10m) — `get_edge_traffic` (окно — интервал + 5 мин, top 50, один вызов за опрос) → сигнал `security`
+    по чужому адресу (свои — `own` из pulse): перебор (4xx ≥ `WATCH_SECURITY_4XX_MIN` при доле ≥
+    `WATCH_SECURITY_4XX_SHARE`), чувствительные ручки (≥ `WATCH_SECURITY_SENSITIVE_MIN`, редкие —
+    `WATCH_SECURITY_SENSITIVE_RARE` — ≥ `WATCH_SECURITY_SENSITIVE_RARE_MIN`), явные пути взломщика
+    (обход каталогов, %2e/%2f, 169.254.169.254 ≥ `WATCH_SECURITY_STRONG_MIN`), разведка (любые признаки ≥
+    `WATCH_SECURITY_PROBE_MIN`); ключ `security:<адрес>:<attack|probe>` (разведка не глушит перебор), до 5
+    адресов за опрос; свой лимит разборов `WATCH_SECURITY_MAX_RUNS_PER_HOUR`. Разбор — `get_client_activity`;
+    пути/UA/Referer — текст атакующего: в промпте — данные, не инструкции; в заголовок без разбора — только
+    адрес, страна, числа и слова словаря pulse; перебор и ручки молча (notify=false) не закрываются — уходят
+    как есть. Пороги подобраны по журналу 20–24.11.2026. Повтор одного сигнала сервиса — не чаще `WATCH_ALERT_REPEAT`. Выкатка
     через `WATCH_DEPLOY_DELAY`: сменилась следующей — `superseded`; снапшот healthy — `healthy` (без
     модели); иначе разбор. Алерт — разбор сразу. Разбор — `agent.Run` со схемой `verdictSchema`
     (notify, severity, title, text); notify=false — `quiet`. Сверх `WATCH_MAX_RUNS_PER_HOUR` разборов
@@ -309,7 +322,11 @@ domain service → repo
   `PII_TOKEN_KEY` (секрет, ≥32 случайных символа; пусто — токены меняются после рестарта),
   `PII_PHONE_COUNTRY_CODE` (7). Наблюдатель: `WATCH_ENABLED` (true), `WATCH_INTERVAL` (1m),
   `WATCH_DEPLOY_DELAY` (15m), `WATCH_ALERT_REPEAT` (6h), `WATCH_MAX_RUNS_PER_HOUR` (20),
-  `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5).
+  `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5). Атаки
+  (`security`): `WATCH_SECURITY_INTERVAL` (10m, 0 — выключено), `WATCH_SECURITY_MAX_RUNS_PER_HOUR` (6),
+  `WATCH_SECURITY_4XX_MIN` (300), `WATCH_SECURITY_4XX_SHARE` (0.8), `WATCH_SECURITY_STRONG_MIN` (3),
+  `WATCH_SECURITY_PROBE_MIN` (50), `WATCH_SECURITY_SENSITIVE_MIN` (100), `WATCH_SECURITY_SENSITIVE_RARE`
+  (`sync_perms,new_refresh_token,/onec_proxy/send,/ab/v1/payment`), `WATCH_SECURITY_SENSITIVE_RARE_MIN` (2).
 
 ### Деплой
 - Чарт — `helm-zeon/charts/pulse` (`templates/agent.yaml`, Deployment `pulse-agent`, одна реплика:

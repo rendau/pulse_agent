@@ -95,6 +95,8 @@ func signalRef(s *notifyModel.Signal) string {
 		return firstString(details, "status")
 	case notifyModel.KindPublic:
 		return firstString(details, "app")
+	case notifyModel.KindSecurity:
+		return securityRef(details)
 	}
 	return ""
 }

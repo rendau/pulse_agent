@@ -12,10 +12,21 @@ const (
 	KindLogs   = "logs"   // всплеск ошибок в логах сервиса
 	KindSelf   = "self"   // сервис сам сообщает о проблеме (манифест)
 	KindPublic = "public" // проблема публичного приложения API-gateway (сбои, backend, скрипт, задержка, трафик)
+	// KindSecurity — атака из интернета по журналу edge-прокси (перебор, пути взломщиков,
+	// чувствительные ручки): адреса и подробности атак — только по явной подписке
+	KindSecurity = "security"
 )
 
 // Kinds — все виды (подписки и приглушения).
-var Kinds = []string{KindAlert, KindDeploy, KindLogs, KindSelf, KindPublic}
+var Kinds = []string{KindAlert, KindDeploy, KindLogs, KindSelf, KindPublic, KindSecurity}
+
+// explicitKinds — виды только по явной подписке: подписка «любой вид» их не покрывает.
+var explicitKinds = []string{KindSecurity}
+
+// KindExplicit — вид приходит только по подписке, где он указан явно.
+func KindExplicit(kind string) bool {
+	return slices.Contains(explicitKinds, kind)
+}
 
 // KindKnown — вид, который можно приглушить (пусто — любой).
 func KindKnown(kind string) bool {
@@ -133,8 +144,8 @@ func SeverityKnown(severity string) bool {
 }
 
 // Subscription — подписка беседы: какие уведомления ей присылать (пустое поле — любое; подписка
-// без полей — всё). Уведомления — по желанию: нет подписок — не приходит ничего, есть — только
-// подходящее хотя бы под одну.
+// без полей — всё, кроме видов только по явной подписке — security). Уведомления — по желанию:
+// нет подписок — не приходит ничего, есть — только подходящее хотя бы под одну.
 type Subscription struct {
 	Id             int64
 	Client         string
@@ -149,10 +160,11 @@ type Subscription struct {
 	CreatedBy string
 }
 
-// Covers — уведомление подходит под подписку.
+// Covers — уведомление подходит под подписку. Вид только по явной подписке (security) — только
+// если он указан в подписке: «любой вид» его не покрывает.
 func (s *Subscription) Covers(n *Notification) bool {
 	return (s.Service == "" || s.Service == n.Service) &&
-		(s.Kind == "" || s.Kind == n.Kind) &&
+		(s.Kind == n.Kind || s.Kind == "" && !KindExplicit(n.Kind)) &&
 		(s.MinSeverity == "" || severityRank[n.Severity] >= severityRank[s.MinSeverity])
 }
 
@@ -181,6 +193,14 @@ type FeedItem struct {
 type MuteState struct {
 	Mute       *Mute
 	Suppressed int
+}
+
+// InvestigatedFilter — разобранные агентом сигналы с Since: Kinds — только этих видов (пусто —
+// любых), ExceptKinds — кроме этих. У атак (security) свой лимит разборов в час.
+type InvestigatedFilter struct {
+	Since       time.Time
+	Kinds       []string
+	ExceptKinds []string
 }
 
 // NotificationFilter — выборка уведомлений по возрастанию id.

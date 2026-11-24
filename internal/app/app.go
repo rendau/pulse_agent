@@ -201,6 +201,17 @@ func (a *App) Init() {
 				LogErrorsFactor: config.Conf.WatchLogErrorsFactor,
 				MaxRunsPerHour:  config.Conf.WatchMaxRunsPerHour,
 				Keep:            journalKeep,
+				Security: serviceWatchServiceP.SecurityConfig{
+					Interval:         config.Conf.WatchSecurityInterval,
+					MaxRunsPerHour:   config.Conf.WatchSecurityMaxRunsPerHour,
+					Brute4xxMin:      config.Conf.WatchSecurity4xxMin,
+					Brute4xxShare:    config.Conf.WatchSecurity4xxShare,
+					StrongMin:        config.Conf.WatchSecurityStrongMin,
+					ProbeMin:         config.Conf.WatchSecurityProbeMin,
+					SensitiveMin:     config.Conf.WatchSecuritySensitiveMin,
+					SensitiveRareMin: config.Conf.WatchSecuritySensitiveRareMin,
+					SensitiveRare:    config.Conf.WatchSecuritySensitiveRare,
+				},
 			}, a.pulse, agentService, notifyService, journalService)
 		}
 	} else {

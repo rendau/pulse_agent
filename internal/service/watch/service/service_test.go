@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -47,12 +48,15 @@ func TestSignals(t *testing.T) {
 
 type fakePulse struct {
 	health string
+	edge   string
 	err    error
 	calls  []string
+	args   []string
 }
 
-func (p *fakePulse) Call(_ context.Context, name, _ string) (*pulseModel.CallResult, error) {
+func (p *fakePulse) Call(_ context.Context, name, arguments string) (*pulseModel.CallResult, error) {
 	p.calls = append(p.calls, name)
+	p.args = append(p.args, arguments)
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -61,6 +65,8 @@ func (p *fakePulse) Call(_ context.Context, name, _ string) (*pulseModel.CallRes
 		return &pulseModel.CallResult{Text: `{"health":"` + p.health + `","summary_hints":["error_rate вырос"]}`}, nil
 	case "get_timeline":
 		return &pulseModel.CallResult{Text: timeline}, nil
+	case "get_edge_traffic":
+		return &pulseModel.CallResult{Text: p.edge}, nil
 	}
 	return &pulseModel.CallResult{IsError: true, Text: "unknown tool"}, nil
 }
@@ -86,6 +92,7 @@ type fakeNotify struct {
 	notifyI
 	superseded    bool
 	runs          int
+	securityRuns  int
 	notifications []*notifyModel.Notification
 	finished      map[string]string
 	retried       []string
@@ -103,7 +110,15 @@ func (n *fakeNotify) Superseded(context.Context, *notifyModel.Signal) (bool, err
 	return n.superseded, nil
 }
 
-func (n *fakeNotify) InvestigatedSince(context.Context, time.Time) (int, error) { return n.runs, nil }
+func (n *fakeNotify) InvestigatedSince(_ context.Context, f notifyModel.InvestigatedFilter) (int, error) {
+	if slices.Contains(f.Kinds, notifyModel.KindSecurity) {
+		return n.securityRuns, nil
+	}
+	if !slices.Contains(f.ExceptKinds, notifyModel.KindSecurity) {
+		return 0, errors.New("у атак — свой лимит: фильтр должен их исключать")
+	}
+	return n.runs, nil
+}
 
 func (n *fakeNotify) Notify(_ context.Context, x *notifyModel.Notification) error {
 	x.Id = int64(len(n.notifications) + 1)

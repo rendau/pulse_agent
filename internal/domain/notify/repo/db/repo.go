@@ -166,10 +166,13 @@ func (r *Repo) LastNotificationId(ctx context.Context) (int64, error) {
 	return id, nil
 }
 
-func (r *Repo) CountInvestigatedSince(ctx context.Context, since time.Time) (int, error) {
+func (r *Repo) CountInvestigatedSince(ctx context.Context, f model.InvestigatedFilter) (int, error) {
 	var n int
-	if err := r.Con.QueryRow(ctx, `select count(*) from signal where done_at >= $1 and outcome in ($2, $3)`,
-		since, model.OutcomeNotified, model.OutcomeQuiet).Scan(&n); err != nil {
+	if err := r.Con.QueryRow(ctx, `
+		select count(*) from signal
+		where done_at >= $1 and outcome in ($2, $3)
+		  and (cardinality($4::text[]) = 0 or kind = any($4)) and not (kind = any($5::text[]))`,
+		f.Since, model.OutcomeNotified, model.OutcomeQuiet, nonNil(f.Kinds), nonNil(f.ExceptKinds)).Scan(&n); err != nil {
 		return 0, fmt.Errorf("Con.QueryRow: %w", err)
 	}
 	return n, nil
@@ -265,4 +268,12 @@ func (r *Repo) DeleteSubscription(ctx context.Context, client, conversationId st
 		return false, fmt.Errorf("Con.Exec: %w", err)
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// nonNil — пустой массив вместо null для параметров text[].
+func nonNil(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }

@@ -77,6 +77,24 @@ var Conf = struct {
 	WatchLogErrorsFactor int `env:"WATCH_LOG_ERRORS_FACTOR" envDefault:"5"`
 	// разборов агентом в час; сверх — уведомление без разбора (сигнал как есть)
 	WatchMaxRunsPerHour int `env:"WATCH_MAX_RUNS_PER_HOUR" envDefault:"20"`
+	// атаки из интернета (get_edge_traffic по журналу traefik): опрос, окно — интервал + 5 мин;
+	// 0 — не следить. Пороги — за окно, по одному чужому адресу (свои — EDGE_KNOWN_ADDRESSES в pulse);
+	// подобраны по журналу 20–24.11.2026 (атака 23.11 и обычные дни)
+	WatchSecurityInterval time.Duration `env:"WATCH_SECURITY_INTERVAL" envDefault:"10m"`
+	// разборов атак в час — свой лимит: шквал адресов не съедает разборы выкаток и алертов
+	WatchSecurityMaxRunsPerHour int `env:"WATCH_SECURITY_MAX_RUNS_PER_HOUR" envDefault:"6"`
+	// перебор: ответов 4xx адресу не меньше MIN и их доля не меньше SHARE
+	WatchSecurity4xxMin   int     `env:"WATCH_SECURITY_4XX_MIN" envDefault:"300"`
+	WatchSecurity4xxShare float64 `env:"WATCH_SECURITY_4XX_SHARE" envDefault:"0.8"`
+	// запросов с явными признаками взлома (обход каталогов, %2e/%2f, 169.254.169.254) не меньше
+	WatchSecurityStrongMin int `env:"WATCH_SECURITY_STRONG_MIN" envDefault:"3"`
+	// запросов с любыми признаками взлома (разведка: документация API, admin, actuator, .env, .git) не меньше
+	WatchSecurityProbeMin int `env:"WATCH_SECURITY_PROBE_MIN" envDefault:"50"`
+	// обращений адреса к чувствительным ручкам (edge.sensitive_paths pulse) не меньше
+	WatchSecuritySensitiveMin int `env:"WATCH_SECURITY_SENSITIVE_MIN" envDefault:"100"`
+	// ручки, куда снаружи обычно не ходят (части пути), и порог обращений к ним
+	WatchSecuritySensitiveRare    []string `env:"WATCH_SECURITY_SENSITIVE_RARE" envSeparator:"," envDefault:"sync_perms,new_refresh_token,/onec_proxy/send,/ab/v1/payment"`
+	WatchSecuritySensitiveRareMin int      `env:"WATCH_SECURITY_SENSITIVE_RARE_MIN" envDefault:"2"`
 
 	// графики к ответам: dark | light (тему пользователя клиенты не сообщают — одна на сервис)
 	ChartTheme string `env:"CHART_THEME" envDefault:"dark"`

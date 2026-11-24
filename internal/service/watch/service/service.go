@@ -1,10 +1,12 @@
 // Package service — наблюдатель: раз в Interval берёт у pulse изменения по кластеру
 // (get_timeline scope=cluster), раз в ClusterInterval — здоровье кластера (get_cluster_health:
 // всплеск ошибок в логах против обычного уровня сервиса, самоотчёты не ok, проблемы публичных
-// приложений API-gateway), заводит сигналы
-// (выкатка — один раз, остальное по сервису — не чаще AlertRepeat) и разбирает созревшие:
+// приложений API-gateway), раз в Security.Interval — внешние запросы (get_edge_traffic: перебор,
+// пути взломщиков, чувствительные ручки с чужих адресов), заводит сигналы
+// (выкатка — один раз, остальное по сервису или адресу — не чаще AlertRepeat) и разбирает созревшие:
 // выкатку — через DeployDelay, только если снапшот сервиса не healthy; остальное — сразу. Разбор — агент со схемой ответа (сообщать ли и что); сверх
-// MaxRunsPerHour разборов или после неудачных попыток — уведомление без разбора.
+// MaxRunsPerHour разборов (у атак — свой лимит Security.MaxRunsPerHour) или после неудачных
+// попыток — уведомление без разбора.
 package service
 
 import (
@@ -61,8 +63,10 @@ type Config struct {
 	// всплеск ошибок в логах: за 15 мин не меньше LogErrorsMin и в LogErrorsFactor раз выше обычного
 	LogErrorsMin    int
 	LogErrorsFactor int
-	MaxRunsPerHour  int           // разборов агентом в час (дальше — без разбора)
+	MaxRunsPerHour  int           // разборов агентом в час, кроме атак (дальше — без разбора)
 	Keep            time.Duration // срок хранения уведомлений
+	// Security — атаки из интернета по журналу edge-прокси (опрос, пороги, свой лимит разборов)
+	Security SecurityConfig
 }
 
 type Service struct {
@@ -74,8 +78,9 @@ type Service struct {
 	now     func() time.Time
 	wg      sync.WaitGroup
 
-	logs          logBaseline // обычный уровень ошибок сервисов (только из цикла наблюдателя)
-	clusterPolled time.Time
+	logs           logBaseline // обычный уровень ошибок сервисов (только из цикла наблюдателя)
+	clusterPolled  time.Time
+	securityPolled time.Time
 }
 
 func New(cfg Config, pulse pulseI, agent agentI, notify notifyI, journal journalI) *Service {
@@ -119,6 +124,12 @@ func (s *Service) tick(ctx context.Context) {
 		s.clusterPolled = s.now()
 		if err := s.collectCluster(ctx); err != nil && ctx.Err() == nil {
 			slog.Warn("watch: collect cluster", "error", err)
+		}
+	}
+	if s.dueSecurity(s.now()) {
+		s.securityPolled = s.now()
+		if err := s.collectSecurity(ctx); err != nil && ctx.Err() == nil {
+			slog.Warn("watch: collect security", "error", err)
 		}
 	}
 
@@ -186,15 +197,25 @@ func (s *Service) handle(ctx context.Context, signal *notifyModel.Signal) error 
 		question = fmt.Sprintf(selfQuestion, signal.Service, signal.Summary, string(signal.Details))
 	case notifyModel.KindPublic:
 		question = fmt.Sprintf(publicQuestion, signal.Summary, string(signal.Details))
+	case notifyModel.KindSecurity:
+		question = securityQuestion(signal)
 	default:
 		question = fmt.Sprintf(alertQuestion, signal.Summary, string(signal.Details))
 	}
 
-	runs, err := s.notify.InvestigatedSince(ctx, s.now().Add(-time.Hour))
+	// у атак свой лимит разборов: шквал адресов не съедает разборы выкаток и алертов
+	security := signal.Kind == notifyModel.KindSecurity
+	pool := notifyModel.InvestigatedFilter{Since: s.now().Add(-time.Hour), ExceptKinds: []string{notifyModel.KindSecurity}}
+	limit := s.cfg.MaxRunsPerHour
+	if security {
+		pool = notifyModel.InvestigatedFilter{Since: pool.Since, Kinds: []string{notifyModel.KindSecurity}}
+		limit = s.cfg.Security.MaxRunsPerHour
+	}
+	runs, err := s.notify.InvestigatedSince(ctx, pool)
 	if err != nil {
 		return fmt.Errorf("notify.InvestigatedSince: %w", err)
 	}
-	if runs >= s.cfg.MaxRunsPerHour {
+	if runs >= limit {
 		slog.Warn("watch: investigation limit reached, notifying without investigation", "key", signal.Key, "runs_per_hour", runs)
 		return s.notifyRaw(ctx, signal, "разбор пропущен: исчерпан лимит разборов в час")
 	}
@@ -204,7 +225,15 @@ func (s *Service) handle(ctx context.Context, signal *notifyModel.Signal) error 
 		return s.failed(ctx, signal, err)
 	}
 	if !v.Notify {
+		// перебор и чувствительные ручки молча не закрываются: «не опасно» мог подсказать и
+		// текст атакующего в журнале — тогда сигнал как есть
+		if security && securityLevel(signal) == levelAttack {
+			return s.notifyRaw(ctx, signal, "разбор счёл это неопасным — проверьте по цифрам сами")
+		}
 		return s.finish(ctx, signal, notifyModel.OutcomeQuiet, nil)
+	}
+	if security {
+		v.Title, v.Text = lo.Ellipsis(strings.TrimSpace(v.Title), 120), lo.Ellipsis(strings.TrimSpace(v.Text), 3000)
 	}
 
 	n := &notifyModel.Notification{
