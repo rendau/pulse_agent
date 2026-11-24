@@ -20,7 +20,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   кладёт уведомления в ленту; беседа получает то, на что подписалась (по желанию: нет подписок —
   ничего), за вычетом приглушённого; какие беседы читают ленту — решает клиент (бот: разрешённые чаты). Приглушение — у каждой беседы
   своё (на время или навсегда, видно, что скрыто, можно вернуть). Персональные данные в
-  уведомлениях — как в ответах (доступ к боту только у сотрудников). Только сообщает — действий нет.
+  уведомлениях — как в ответах (доступ к боту только у сотрудников). Сам не действует; блокировка
+  адреса в ruto — только по кнопке админа в боте (2026-11-24, под уведомлением `security`).
 - Ответ синхронный (асинхронного режима пока нет — решение заказчика).
 
 Конвенции этого стека вынесены в глобальные Claude Code скиллы (`golang-service`,
@@ -35,8 +36,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `internal/` — бизнес-логика и инфраструктура (закрытые пакеты).
 - `docs/` — контракт API (`agent-api.md`), выдаётся через `/docs/*`.
 - `migrations/` — SQL миграции (golang-migrate): `000001_init` — журнал, `000002_notify` — беседы,
-  сигналы, уведомления, приглушения, `000003_subscription` — подписки (сервис уже в проде — изменения
-  схемы только новыми файлами).
+  сигналы, уведомления, приглушения, `000003_subscription` — подписки, `000004_block_decision` —
+  решения админов о блокировке адресов атак (сервис уже в проде — изменения схемы только новыми файлами).
 - `evals/` — эталонные вопросы (`cases.yaml`) и эталонный прогон (`baseline.json`).
 - `skills/` — навыки агента (с 2026-09-26): руководства по темам, вшиты в образ (`embed.go`). В
   системном промпте — только список «имя — название: когда нужен»; текст модель открывает сама
@@ -61,9 +62,12 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
 - `internal/handler/http/` — JSON-API: `POST /v1/ask`, `POST /v1/reset`, `POST /v1/eval` (прогон
   эталонов — системам из `EVAL_CLIENTS`); bearer-ключ → имя системы (`withClient`, сравнение за
   постоянное время); `dto/` — контракт (`docs/agent-api.md`), неизвестные поля запроса — 400; коды
-  ошибок `invalid_request`/`unauthorized`/`forbidden`/`busy`/`rate_limited`/`canceled`/`timeout`/`internal`.
+  ошибок `invalid_request`/`unauthorized`/`forbidden`/`not_found`/`busy`/`rate_limited`/`canceled`/`unavailable`/`timeout`/`internal`.
   `finding.go` — `POST /v1/findings`: внешняя находка об атаке (расписание Claude → pulse
   `report_security_finding` → сюда, клиент `pulse`).
+  `block.go` — `POST /v1/notifications/{id}/block`: решение админа под уведомлением `security`
+  (кнопки бота) — заблокировать адрес в ruto или нет; только системам из `BLOCK_CLIENTS` (иначе 403,
+  разработчику тоже), без хранилища или `RUTO_API_KEY` и при недоступном ruto — 503 `unavailable`.
   `debug.go` — ручки разработчика (только `DEBUG_TOKEN`; он же годится для `/v1/*` как система
   `debug`): `POST /debug/eval`, `GET /debug/eval/last`,
   `GET /debug/recent?client=&outcome=&limit=&before_id=` (список без ответа и хода разбора, новые —
@@ -84,6 +88,16 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   уведомление `security` за `WATCH_ALERT_REPEAT` (`notify.Recent`), — нет (`deduplicated`); лимит
   `FINDINGS_PER_HOUR` на клиента — в памяти. Наблюдатель тоже не тревожит повторно об адресе находки
   (исход `duplicate`).
+- `internal/usecase/block/` — решение админа о блокировке адреса атаки в ruto (кнопки «24 ч / 7 дней /
+  не блокировать» в боте): только уведомления `security`, ключ — адрес или сеть; срок — `24h` или `168h`.
+  Одно итоговое решение на уведомление — успешный блок: дальше любые нажатия (из любого чата) получают
+  его с `repeat` и ничего не вызывают. «Не блокировать» — не итоговое (пишется первое, повтор — оно же);
+  отказ ruto (400/403) — попытка с `refused`, можно снова. Нажатия по одному уведомлению — по одному за
+  раз (замок в памяти: одна реплика), между репликами одно итоговое решение держит уникальный индекс.
+  Вызов ruto и запись доводятся и если бот закрыл соединение (`context.WithoutCancel`). Причина в ruto —
+  «pulse: <заголовок> — решение в Telegram: <имя> (<id>)», до 500 символов (`created_by` в ruto —
+  владелец ключа). Сеть уже заблокировал человек — ruto возвращает его блок (`source: admin`, срок
+  человека, может быть без конца): это тоже блок.
 - `internal/usecase/monitor/` — мониторинг для `/debug/*`: последние вопросы, вопрос целиком,
   сводка по журналу за окно, сведения об агенте и доступность pulse (каталог инструментов).
 - `internal/domain/journal/` — журнал вопросов (кто, что, исход, время, инструменты, токены,
@@ -105,6 +119,9 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
   Вид `security` (атака из интернета) — только по явной подписке (`KindExplicit`): подписка с пустым
   `Kind` его не покрывает (адреса и подробности атак — не всем чатам); у уведомления нет сервиса, `Key`
   — адрес; кнопка приглушения под ним глушит этот адрес (вид + ключ), а не всё.
+- `internal/domain/block/` — решения о блокировке (таблица `block_decision`, удаляются вместе с
+  уведомлением): частичные уникальные индексы — одно итоговое (`block` без `refused`) и одно `skip` на
+  уведомление, вставка `on conflict do nothing`; `Record` при конфликте возвращает уже записанное.
 - `internal/domain/dialog/` — история беседы: пары «вопрос — итоговый ответ» (без вызовов
   инструментов), последние N, сброс после тишины; `repo/mem` — в памяти процесса.
 - `internal/service/` — сервисные модули (раскладка — скилл `golang-service`):
@@ -175,6 +192,9 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     `notifications_mute`, `notifications_unmute`, `notifications_settings`. Аргументы — настоящими значениями (`pii.Reveal`), ответ — модели токенами.
   - `pulse` — MCP-клиент pulse: ленивое подключение, переподключение при потере сессии,
     bearer-токен, каталог инструментов перечитывается на каждый разбор.
+  - `rutoblock` — клиент чёрного списка API-шлюза ruto (`POST /api/blocked_client`, ключ ruto со scope
+    `blocklist`; перенесён из pulse): отказ по правилам ruto (400/403) — `*model.RefusedError` с текстом
+    ruto (`errors.Is(err, model.ErrRefused)`), недоступен, 5xx, 401 — `errs.ServiceNA`.
   - `retention` — фоновая чистка журнала: раз в час удаляет записи старше
     `JOURNAL_RETENTION_DAYS` (первый проход — на старте); только при журнале в Postgres.
   - `chart` — графики (`gonum.org/v1/plot`, PNG в памяти, шрифты с кириллицей вшиты): `line` —
@@ -331,7 +351,9 @@ domain service → repo
   `PII_PHONE_COUNTRY_CODE` (7). Наблюдатель: `WATCH_ENABLED` (true), `WATCH_INTERVAL` (1m),
   `WATCH_DEPLOY_DELAY` (15m), `WATCH_ALERT_REPEAT` (6h), `WATCH_MAX_RUNS_PER_HOUR` (20),
   `WATCH_CLUSTER_INTERVAL` (5m), `WATCH_LOG_ERRORS_MIN` (50), `WATCH_LOG_ERRORS_FACTOR` (5).
-  Внешние находки: `FINDINGS_PER_HOUR` (10). Атаки
+  Внешние находки: `FINDINGS_PER_HOUR` (10). Блокировка в ruto по кнопке админа: `RUTO_API_URL`
+  (`http://ruto-core.default.svc`), `RUTO_API_KEY` (секрет, ключ ruto со scope `blocklist`; пусто —
+  выключена), `BLOCK_CLIENTS` (кому можно, бот; пусто — никому). Атаки
   (`security`): `WATCH_SECURITY_INTERVAL` (10m, 0 — выключено), `WATCH_SECURITY_MAX_RUNS_PER_HOUR` (6),
   `WATCH_SECURITY_4XX_MIN` (3000), `WATCH_SECURITY_4XX_SHARE` (0.9), `WATCH_SECURITY_STRONG_MIN` (30),
   `WATCH_SECURITY_METADATA_MIN` (1), `WATCH_SECURITY_PROBE_MIN` (0 — разведка по слабым признакам выключена:
@@ -379,7 +401,7 @@ gofmt  →  go vet ./...  →  go test ./...  →  make eval (после деп�
 ### Тестовый стенд
 - Postgres — контейнер `pulse-pg` из стенда pulse (`localhost:5440`, `postgres/postgres`); база
   журнала `pulse_agent` создаётся агентом сама: `PG_DSN=postgres://postgres:postgres@localhost:5440/pulse_agent?sslmode=disable`.
-  Живой тест репозиториев: `PG_LIVE_DSN=<тот же DSN> go test ./internal/domain/journal/repo/db/ ./internal/domain/notify/repo/db/ -run TestLive -v`
+  Живой тест репозиториев: `PG_LIVE_DSN=<тот же DSN> go test ./internal/domain/journal/repo/db/ ./internal/domain/notify/repo/db/ ./internal/domain/block/repo/db/ -run TestLive -v`
   (базу `pulse_agent` создать заранее: `docker exec pulse-pg psql -U postgres -c "create database pulse_agent"`).
 - Локально: pulse — по стенду pulse (`localhost:9091/mcp`, `devtoken`), агент —
   `HTTP_PORT=9092 SYSTEM_HTTP_PORT=3014 API_KEYS=dev:devkey`, вопрос:

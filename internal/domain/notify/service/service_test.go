@@ -148,6 +148,19 @@ func TestMuteValidation(t *testing.T) {
 	require.NoError(t, s.Unmute(ctx, "bot", "1", m.Id))
 }
 
+func TestNotification(t *testing.T) {
+	ctx := context.Background()
+	s := New(&fakeRepo{})
+	require.NoError(t, s.Notify(ctx, &model.Notification{Kind: model.KindSecurity, Key: "203.0.113.7", Title: "атака"}))
+
+	n, err := s.Notification(ctx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "203.0.113.7", n.Key)
+
+	_, err = s.Notification(ctx, 2)
+	require.ErrorIs(t, err, errs.ObjectNotFound)
+}
+
 func TestSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	s := New(&fakeRepo{})

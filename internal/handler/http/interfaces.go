@@ -8,6 +8,7 @@ import (
 	notifyModel "github.com/rendau/pulse_agent/internal/domain/notify/model"
 	"github.com/rendau/pulse_agent/internal/eval"
 	askModel "github.com/rendau/pulse_agent/internal/usecase/ask/model"
+	blockModel "github.com/rendau/pulse_agent/internal/usecase/block/model"
 	findingModel "github.com/rendau/pulse_agent/internal/usecase/finding/model"
 	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
 )
@@ -43,6 +44,11 @@ type NotifyUsecaseI interface {
 	Subscribe(ctx context.Context, client, conversationId string, spec *notifyModel.SubscriptionSpec) (*notifyModel.Subscription, error)
 	Unsubscribe(ctx context.Context, client, conversationId string, id int64) error
 	Subscriptions(ctx context.Context, client, conversationId string) ([]*notifyModel.Subscription, error)
+}
+
+// BlockUsecaseI — решение админа о блокировке адреса атаки в ruto; nil — без хранилища или ключа ruto (503).
+type BlockUsecaseI interface {
+	Decide(ctx context.Context, req *blockModel.Request) (*blockModel.Result, error)
 }
 
 // FindingUsecaseI — приём внешних находок об атаках; nil — без хранилища (503).

@@ -1,6 +1,7 @@
 // Package http — JSON API агента для систем-клиентов (бот, service-desk, разбор алертов):
 // POST /v1/ask, /v1/reset, /v1/eval; лента уведомлений наблюдателя, приглушения и заметки
-// беседы (notify.go), приём внешних находок об атаках (finding.go). У каждой системы свой bearer-ключ (API_KEYS): по нему
+// беседы (notify.go), приём внешних находок об атаках (finding.go), решение админа о блокировке
+// адреса атаки в ruto (block.go). У каждой системы свой bearer-ключ (API_KEYS): по нему
 // известно, кто спрашивает, — журнал, метрики и свои беседы. Ключ разработчика (DEBUG_TOKEN)
 // открывает ещё /debug/* (debug.go): мониторинг и прогон эталонных вопросов.
 package http
@@ -62,35 +63,42 @@ type Config struct {
 	EvalClients []string
 	// EvalTimeout — потолок времени на прогон
 	EvalTimeout time.Duration
+	// BlockClients — системы, которым можно решать о блокировке адреса в ruto (бот); разработчику — нет
+	BlockClients []string
 }
 
 type Handler struct {
 	ask         AskUsecaseI
 	notify      NotifyUsecaseI  // nil — без хранилища
 	finding     FindingUsecaseI // nil — без хранилища
+	block       BlockUsecaseI   // nil — без хранилища или без ключа ruto
 	monitor     MonitorUsecaseI
 	keeper      EvalKeeperI
 	keys        map[string][]byte // клиент → ключ
 	evalClients map[string]struct{}
 	evalTimeout time.Duration
-	loc         *time.Location
+	// blockClients — кому можно POST /v1/notifications/{id}/block
+	blockClients map[string]struct{}
+	loc          *time.Location
 }
 
-func New(cfg Config, ask AskUsecaseI, notify NotifyUsecaseI, finding FindingUsecaseI, monitor MonitorUsecaseI, keeper EvalKeeperI, loc *time.Location) *Handler {
+func New(cfg Config, ask AskUsecaseI, notify NotifyUsecaseI, finding FindingUsecaseI, block BlockUsecaseI, monitor MonitorUsecaseI, keeper EvalKeeperI, loc *time.Location) *Handler {
 	keys := lo.MapValues(cfg.Keys, func(key string, _ string) []byte { return []byte(key) })
 	if cfg.DebugToken != "" {
 		keys[ClientDebug] = []byte(cfg.DebugToken)
 	}
 	return &Handler{
-		ask:         ask,
-		notify:      notify,
-		finding:     finding,
-		monitor:     monitor,
-		keeper:      keeper,
-		keys:        keys,
-		evalClients: lo.SliceToMap(append(cfg.EvalClients, ClientDebug), func(c string) (string, struct{}) { return c, struct{}{} }),
-		evalTimeout: lo.Ternary(cfg.EvalTimeout > 0, cfg.EvalTimeout, 20*time.Minute),
-		loc:         loc,
+		ask:          ask,
+		notify:       notify,
+		finding:      finding,
+		block:        block,
+		monitor:      monitor,
+		keeper:       keeper,
+		keys:         keys,
+		evalClients:  lo.SliceToMap(append(cfg.EvalClients, ClientDebug), func(c string) (string, struct{}) { return c, struct{}{} }),
+		evalTimeout:  lo.Ternary(cfg.EvalTimeout > 0, cfg.EvalTimeout, 20*time.Minute),
+		blockClients: lo.SliceToMap(cfg.BlockClients, func(c string) (string, struct{}) { return strings.TrimSpace(c), struct{}{} }),
+		loc:          loc,
 	}
 }
 
@@ -101,6 +109,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+PathEval, h.withClient(h.Eval))
 	h.registerNotify(mux)
 	h.registerFinding(mux)
+	h.registerBlock(mux)
 	h.registerDebug(mux)
 }
 

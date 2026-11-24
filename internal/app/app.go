@@ -19,6 +19,8 @@ import (
 	"github.com/rendau/pulse_agent/evals"
 	"github.com/rendau/pulse_agent/internal/config"
 	"github.com/rendau/pulse_agent/internal/constant"
+	domainBlockRepoDbP "github.com/rendau/pulse_agent/internal/domain/block/repo/db"
+	domainBlockServiceP "github.com/rendau/pulse_agent/internal/domain/block/service"
 	domainChatRepoDbP "github.com/rendau/pulse_agent/internal/domain/chat/repo/db"
 	domainChatServiceP "github.com/rendau/pulse_agent/internal/domain/chat/service"
 	domainDialogRepoMemP "github.com/rendau/pulse_agent/internal/domain/dialog/repo/mem"
@@ -42,9 +44,11 @@ import (
 	servicePulseServiceP "github.com/rendau/pulse_agent/internal/service/pulse/service"
 	"github.com/rendau/pulse_agent/internal/service/retention"
 	serviceRetentionServiceP "github.com/rendau/pulse_agent/internal/service/retention/service"
+	serviceRutoblockServiceP "github.com/rendau/pulse_agent/internal/service/rutoblock/service"
 	"github.com/rendau/pulse_agent/internal/service/watch"
 	serviceWatchServiceP "github.com/rendau/pulse_agent/internal/service/watch/service"
 	usecaseAskP "github.com/rendau/pulse_agent/internal/usecase/ask"
+	usecaseBlockP "github.com/rendau/pulse_agent/internal/usecase/block"
 	usecaseFindingP "github.com/rendau/pulse_agent/internal/usecase/finding"
 	usecaseMonitorP "github.com/rendau/pulse_agent/internal/usecase/monitor"
 	monitorModel "github.com/rendau/pulse_agent/internal/usecase/monitor/model"
@@ -191,12 +195,23 @@ func (a *App) Init() {
 	// notify (лента для бесед клиентов) и наблюдатель
 	var notifyUsecase handlerHttpP.NotifyUsecaseI
 	var findingUsecase handlerHttpP.FindingUsecaseI
+	var blockUsecase handlerHttpP.BlockUsecaseI
 	if notifyService != nil {
 		notifyUsecase = usecaseNotifyP.New(chatService, notifyService)
 		findingUsecase = usecaseFindingP.New(usecaseFindingP.Config{
 			Repeat:  config.Conf.WatchAlertRepeat,
 			PerHour: config.Conf.FindingsPerHour,
 		}, notifyService)
+		// блокировка адреса атаки в ruto — только по кнопке админа (BLOCK_CLIENTS)
+		if config.Conf.RutoApiKey != "" {
+			blockUsecase = usecaseBlockP.New(
+				notifyService,
+				domainBlockServiceP.New(domainBlockRepoDbP.New(a.pgpool)),
+				serviceRutoblockServiceP.New(config.Conf.RutoApiUrl, config.Conf.RutoApiKey),
+			)
+		} else {
+			slog.Warn("RUTO_API_KEY is empty: blocking attack addresses in ruto is off")
+		}
 		if config.Conf.WatchEnabled {
 			a.watch = serviceWatchServiceP.New(serviceWatchServiceP.Config{
 				Interval:        config.Conf.WatchInterval,
@@ -254,11 +269,12 @@ func (a *App) Init() {
 	// http server (API)
 	{
 		handler := handlerHttpP.New(handlerHttpP.Config{
-			Keys:        keys,
-			DebugToken:  config.Conf.DebugToken,
-			EvalClients: config.Conf.EvalClients,
-			EvalTimeout: config.Conf.EvalTimeout,
-		}, askUsecase, notifyUsecase, findingUsecase, monitorUsecase, evalKeeper, location)
+			Keys:         keys,
+			DebugToken:   config.Conf.DebugToken,
+			EvalClients:  config.Conf.EvalClients,
+			EvalTimeout:  config.Conf.EvalTimeout,
+			BlockClients: config.Conf.BlockClients,
+		}, askUsecase, notifyUsecase, findingUsecase, blockUsecase, monitorUsecase, evalKeeper, location)
 		a.httpServer = HttpServerCreate(config.Conf.HttpPort, handler, a.ctx)
 	}
 

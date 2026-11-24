@@ -80,6 +80,18 @@ func (s *Service) Notify(ctx context.Context, n *model.Notification) error {
 	return nil
 }
 
+// Notification — уведомление по id. Ошибки: errs.ObjectNotFound — нет (или уже удалено чисткой).
+func (s *Service) Notification(ctx context.Context, id int64) (*model.Notification, error) {
+	n, err := s.repo.GetNotification(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("repo.GetNotification: %w", err)
+	}
+	if n == nil {
+		return nil, fmt.Errorf("%w: notification %d", errs.ObjectNotFound, id)
+	}
+	return n, nil
+}
+
 // Recent — последнее уведомление вида kind с ключом key за время within (nil — не было):
 // дедупликация атак по адресу между наблюдателем и внешними находками.
 func (s *Service) Recent(ctx context.Context, kind, key string, within time.Duration) (*model.Notification, error) {

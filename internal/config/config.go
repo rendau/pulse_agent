@@ -104,6 +104,14 @@ var Conf = struct {
 	// стольких в час от одного клиента, сверх — 429
 	FindingsPerHour int `env:"FINDINGS_PER_HOUR" envDefault:"10"`
 
+	// блокировка адреса атаки в API-шлюзе ruto — только по кнопке админа под уведомлением security
+	// (POST /v1/notifications/{id}/block): основной HTTP-порт ruto-core и ключ ruto со scope
+	// blocklist (секрет; пусто — блокировка выключена, ручка отвечает 503)
+	RutoApiUrl string `env:"RUTO_API_URL" envDefault:"http://ruto-core.default.svc"`
+	RutoApiKey string `env:"RUTO_API_KEY"`
+	// системы, которым можно решать о блокировке (бот); пусто — никому
+	BlockClients []string `env:"BLOCK_CLIENTS" envSeparator:","`
+
 	// графики к ответам: dark | light (тему пользователя клиенты не сообщают — одна на сервис)
 	ChartTheme string `env:"CHART_THEME" envDefault:"dark"`
 }{}
