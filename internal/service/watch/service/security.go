@@ -95,7 +95,6 @@ type edgeClient struct {
 	Hosts         []edgeCount `json:"hosts"`
 	UserAgents    []edgeCount `json:"user_agents"`
 	Countries     []edgeCount `json:"countries"`
-	New           *bool       `json:"new"`
 }
 
 type edgeSignature struct {
@@ -130,7 +129,6 @@ type suspect struct {
 	Sensitive  map[string]int `json:"sensitive,omitempty"`
 	Country    string         `json:"country,omitempty"`
 	Hosts      []string       `json:"hosts,omitempty"`
-	New        *bool          `json:"new,omitempty"`
 	// UserAgents — НЕДОВЕРЕННЫЙ текст атакующего: только разбору как данные, не в заголовок
 	UserAgents []string `json:"user_agents,omitempty"`
 
@@ -172,7 +170,7 @@ func suspects(rep *edgeRep, cfg SecurityConfig, window string) []*suspect {
 			continue
 		}
 		s := get(c.Addr)
-		s.Requests, s.Paths, s.New = int(c.Requests), c.DistinctPaths, c.New
+		s.Requests, s.Paths = int(c.Requests), c.DistinctPaths
 		if c.Share4xx != nil {
 			s.Share4xx = *c.Share4xx
 			s.Resp4xx = int(c.Requests * *c.Share4xx)
@@ -297,6 +295,8 @@ func (s *Service) securityWindow() time.Duration {
 }
 
 // collectSecurity — сигналы атак из сводки внешних запросов (один вызов get_edge_traffic).
+// Признак «новый адрес» (check_new) не запрашивается: он читает журнал за неделю до окна — при
+// опросе каждые 10 минут это десятки гигабайт и ядра Loki, а порогам он не нужен.
 func (s *Service) collectSecurity(ctx context.Context) error {
 	window := s.securityWindow()
 	var rep edgeRep

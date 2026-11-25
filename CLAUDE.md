@@ -172,7 +172,8 @@ OpenAI (`github.com/openai/openai-go/v3`, Responses API, `gpt-6-sol`).
     обычный уровень — в памяти, первые 3 опроса после старта — без сигналов), `self` — самоотчёт не ok
     (`self_reported`), `public` — приложение API-gateway с проблемой (`public_apps`: пороги и правила —
     в pulse; ключ `public:<app>`, сервис — бэкенд, иначе имя приложения). Раз в `WATCH_SECURITY_INTERVAL`
-    (10m) — `get_edge_traffic` (окно — интервал + 5 мин, top 50, один вызов за опрос) → сигнал `security`
+    (10m) — `get_edge_traffic` (окно — интервал + 5 мин, top 50, один вызов за опрос, без `check_new`: признак «новый
+    адрес» читает журнал за неделю до окна — десятки ГБ на опрос, порогам он не нужен) → сигнал `security`
     по чужому адресу (свои — `own` из pulse): перебор (4xx ≥ `WATCH_SECURITY_4XX_MIN` при доле ≥
     `WATCH_SECURITY_4XX_SHARE`), чувствительные ручки (≥ `WATCH_SECURITY_SENSITIVE_MIN`, редкие —
     `WATCH_SECURITY_SENSITIVE_RARE` — ≥ `WATCH_SECURITY_SENSITIVE_RARE_MIN`), явные пути взломщика
